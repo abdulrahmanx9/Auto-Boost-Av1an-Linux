@@ -243,11 +243,11 @@ if [ -d "vszip" ]; then rm -rf vszip; fi
 git clone https://github.com/dnjulek/vapoursynth-zip.git vszip
 cd vszip
 
-# Download Portable Zig (Linux x86_64) - using 0.13.0 (Stable)
-ZIG_VER="0.13.0"
+# Download Portable Zig (Linux x86_64) - using 0.15.2 (Latest Stable)
+ZIG_VER="0.15.2"
 if [ ! -d "zig_compiler" ]; then
     echo "Fetching Zig ${ZIG_VER}..."
-    wget "https://ziglang.org/download/${ZIG_VER}/zig-linux-x86_64-${ZIG_VER}.tar.xz" -O zig.tar.xz
+    wget "https://ziglang.org/download/${ZIG_VER}/zig-x86_64-linux-${ZIG_VER}.tar.xz" -O zig.tar.xz
     
     mkdir -p zig_compiler
     tar -xf zig.tar.xz -C zig_compiler --strip-components=1

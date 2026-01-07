@@ -97,10 +97,10 @@ sudo cp libwwxd.so /usr/local/lib/vapoursynth/
 ```
 
 **Install VSZIP (Metrics):**
-We recommend the `dnjulek` fork and Zig 0.13.0.
+We recommend the `dnjulek` fork and Zig 0.15.2 (latest stable).
 ```bash
-# Get Zig 0.13.0
-wget "https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz" -O zig.tar.xz
+# Get Zig 0.15.2
+wget "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -O zig.tar.xz
 mkdir -p zig_compiler && tar -xf zig.tar.xz -C zig_compiler --strip-components=1
 
 # Build Plugin
