@@ -120,6 +120,11 @@ sudo cp zig-out/lib/libvszip.so /usr/local/lib/vapoursynth/
     ```bash
     ./run_linux.sh
     ```
+    
+    **Alternative Run Scripts:**
+    *   `./run_linux_bt709.sh`: Same as standard but forces **BT.709** color signaling (Standard HD).
+    *   `./run_linux_hq.sh`: **High Quality** Mode. Slower presets (Tune 3), uses `vszip` based metrics, higher quality settings.
+    *   `./run_linux_hq_bt709.sh`: High Quality Mode + BT.709 color signaling.
 
 The script will:
 1.  Calculate optimal worker count.
