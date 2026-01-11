@@ -38,12 +38,14 @@ echo "Updating apt..."
 apt update
 echo "Installing System Packages..."
 # Added build deps for VapourSynth (cython3, libzimg-dev) and python libs
-apt install -y software-properties-common ffmpeg x264 mkvtoolnix mkvtoolnix-gui python3 python3-pip git curl wget build-essential cmake pkg-config autoconf automake libtool yasm nasm clang libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavdevice-dev libavfilter-dev cython3 libzimg-dev python3-numpy python3-psutil python3-rich jq mediainfo opus-tools
+# Added x265 (CLI) for extras/lossless-intermediary and xclip for clipboard support
+apt install -y software-properties-common ffmpeg x264 mkvtoolnix mkvtoolnix-gui python3 python3-pip git curl wget build-essential cmake pkg-config autoconf automake libtool yasm nasm clang libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavdevice-dev libavfilter-dev cython3 libzimg-dev python3-numpy python3-psutil python3-rich jq mediainfo opus-tools x265 xclip
 
 # 3. Python Libraries (Install FIRST to allow source VS build to overwrite pip version)
 echo "Installing Python Libraries..."
 # Use --ignore-installed to avoid conflicts with apt-installed packages
-pip3 install vsjetpack numpy rich vstools psutil --break-system-packages --ignore-installed
+# Added dependencies for tools/comp.py (anitopy, pyperclip, requests, natsort, colorama)
+pip3 install vsjetpack numpy rich vstools psutil anitopy pyperclip requests requests_toolbelt natsort colorama --break-system-packages --ignore-installed
 
 # Remove the pip-installed vapoursynth which conflicts with the source build we are about to do
 echo "Removing pip-installed VapourSynth to avoid version mismatch..."
