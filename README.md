@@ -13,6 +13,7 @@ We have provided a script to automatically install all dependencies on Ubuntu/De
 This script needs to be run as root.
 
 ```bash
+dos2unix install_deps_ubuntu.sh
 chmod +x install_deps_ubuntu.sh
 sudo ./install_deps_ubuntu.sh
 ```
@@ -177,6 +178,21 @@ The script will:
 5.  Mux audio/subtitles back.
 6.  Tag the output file.
 7.  Cleanup temporary files.
+8.  Final outputs are in the `Output/` folder.
+
+## Extras (Linux)
+
+We include a `extras/` folder with helper scripts for advanced workflows:
+
+*   **`encode-opus-audio.sh`**: Scans `Input/` for MKVs, extracts audio, converts to efficient **Opus** format, and remuxes output to `Output/`.
+*   **`lossless-intermediary.sh`**: Converts video files to lossless 10-bit x265 intermediates (useful for heavier editing/filtering).
+*   **`compare.sh`**: Runs `comp.py` to generate comparison screenshots between video files.
+
+*Usage:*
+```bash
+cd extras
+./encode-opus-audio.sh
+```
 
 ## Troubleshooting
 

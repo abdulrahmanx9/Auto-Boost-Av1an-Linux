@@ -38,8 +38,9 @@ echo "Updating apt..."
 apt update
 echo "Installing System Packages..."
 # Added build deps for VapourSynth (cython3, libzimg-dev) and python libs
-# Added x265 (CLI) for extras/lossless-intermediary and xclip for clipboard support
-apt install -y software-properties-common ffmpeg x264 mkvtoolnix mkvtoolnix-gui python3 python3-pip git curl wget build-essential cmake pkg-config autoconf automake libtool yasm nasm clang libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavdevice-dev libavfilter-dev cython3 libzimg-dev python3-numpy python3-psutil python3-rich jq mediainfo opus-tools x265 xclip
+# Added x265 (CLI) for extras/lossless-intermediary and xclip for clipboard support 
+# Added build deps for SubText (meson, ninja-build, libass-dev)
+apt install -y software-properties-common ffmpeg x264 mkvtoolnix mkvtoolnix-gui python3 python3-pip git curl wget build-essential cmake pkg-config autoconf automake libtool yasm nasm clang libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavdevice-dev libavfilter-dev cython3 libzimg-dev python3-numpy python3-psutil python3-rich jq mediainfo opus-tools x265 xclip meson ninja-build libass-dev
 
 # 3. Python Libraries (Install FIRST to allow source VS build to overwrite pip version)
 echo "Installing Python Libraries..."
@@ -313,6 +314,24 @@ cd ../..
     
     # Refresh libs
     ldconfig
+
+# 8. SubText (Required for comp.py subtitles)
+echo "Compiling SubText..."
+if [ -d "subtext" ]; then rm -rf subtext; fi
+git clone https://github.com/vapoursynth/subtext.git
+cd subtext
+mkdir build && cd build
+meson setup .. --buildtype=release
+ninja
+# Install manually
+if [ -f "libsubtext.so" ]; then
+    cp "libsubtext.so" "$VS_PLUGIN_PATH/"
+    echo "SubText installed to $VS_PLUGIN_PATH"
+else
+    echo "ERROR: SubText compilation failed!"
+fi
+cd ../..
+rm -rf subtext
 
 # Cleanup
 cd ..

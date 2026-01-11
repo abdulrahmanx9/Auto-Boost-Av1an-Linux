@@ -43,7 +43,7 @@ upscale = True
 # Scale all videos to one vertical resolution. Set to 0 to disable, otherwise input the desired vertical res.
 single_res = 0
 # Use FFmpeg as the image renderer. If false, fpng is used instead
-ffmpeg = False
+ffmpeg = True
 # Compression level. For FFmpeg, range is 0-100. For fpng, 0 is fast, 1 is slow, 2 is uncompressed.
 compression = 1
 
@@ -187,7 +187,11 @@ def FrameInfo(
         n: int, f: vs.VideoFrame, clip: vs.VideoNode, padding: Optional[str]
     ) -> vs.VideoNode:
         if "_PictType" in f.props:
-            info = f"Frame {n} of {clip.num_frames}\nPicture type: {f.props['_PictType'].decode()}"
+            pict_type = f.props["_PictType"]
+            # Handle both bytes (old VS) and str (new VS) for _PictType
+            if isinstance(pict_type, bytes):
+                pict_type = pict_type.decode()
+            info = f"Frame {n} of {clip.num_frames}\nPicture type: {pict_type}"
         else:
             info = f"Frame {n} of {clip.num_frames}\nPicture type: N/A"
 
@@ -764,9 +768,9 @@ def str_to_number(string: str):
         try:
             int(string)
             return int(string)
-        except:
+        except ValueError:
             return float(string)
-    except:
+    except ValueError:
         return string
 
 
@@ -940,7 +944,7 @@ def run_comparison():
     for findex, file in enumerate(files):
         groupname = files_info[findex].get("suffix")
 
-        if files_info[findex].get("release_group") != None:
+        if files_info[findex].get("release_group") is not None:
             # if group name is found, highlight
             if groupname == files_info[findex].get("release_group"):
                 filename = files_info[findex].get("file_name").split(groupname)
@@ -1107,7 +1111,7 @@ def run_comparison():
                 mismatch = True
 
             # check if trim for analyzed file has changed
-            if mismatch == False:
+            if not mismatch:
                 found_trim = 0
                 found_trim_end = 0
                 if files.index(analyzed_file) in trim_dict:
@@ -1119,7 +1123,7 @@ def run_comparison():
                     mismatch = True
 
             # check if fps of analyzed file has changed
-            if mismatch == False:
+            if not mismatch:
                 temp_clip = init_clip(
                     analyzed_file, files, trim_dict, trim_dict_end, change_fps
                 )
@@ -1302,7 +1306,7 @@ def run_comparison():
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-        except:
+        except (FileNotFoundError, subprocess.SubprocessError):
             ffmpeg = False
             printwrap(
                 "FFmpeg was not found. Continuing to generate screens without it."
@@ -1393,17 +1397,50 @@ def run_comparison():
                 filename = f"{screen_dir}/{frame} - {suffix}.png"
 
                 if ffmpeg:
-                    ffmpeg_line = f'ffmpeg -y -hide_banner -loglevel error -f rawvideo -video_size {clip.width}x{clip.height} -pixel_format gbrp -framerate {str(clip.fps)} -i pipe: -pred mixed -compression_level {compression} "{filename}"'
+                    ffmpeg_cmd = [
+                        "ffmpeg",
+                        "-y",
+                        "-hide_banner",
+                        "-loglevel",
+                        "warning",
+                        "-f",
+                        "rawvideo",
+                        "-video_size",
+                        f"{clip.width}x{clip.height}",
+                        "-pixel_format",
+                        "gbrp",
+                        "-framerate",
+                        str(clip.fps),
+                        "-i",
+                        "pipe:",
+                        "-frames:v",
+                        "1",
+                        "-pred",
+                        "mixed",
+                        "-compression_level",
+                        str(compression),
+                        filename,
+                    ]
                     try:
-                        with subprocess.Popen(
-                            ffmpeg_line, stdin=subprocess.PIPE
-                        ) as process:
-                            # ffmpeg needs these planes to be shuffled so they are in gbrp pixel_format (the p is important, rgb24 format doesnt work)
-                            clip[frame].std.ShufflePlanes([1, 2, 0], vs.RGB).output(
-                                cast(BinaryIO, process.stdin), y4m=False
+                        process = subprocess.Popen(
+                            ffmpeg_cmd,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE,
+                        )
+                        # ffmpeg needs these planes to be shuffled so they are in gbrp pixel_format
+                        clip[frame].std.ShufflePlanes([1, 2, 0], vs.RGB).output(
+                            cast(BinaryIO, process.stdin), y4m=False
+                        )
+                        process.stdin.close()
+                        process.wait()
+                        if process.returncode != 0:
+                            stderr_output = (
+                                process.stderr.read().decode() if process.stderr else ""
                             )
-                    except:
-                        None
+                            print(f"FFmpeg error for {filename}: {stderr_output}")
+                    except Exception as e:
+                        print(f"Error generating screenshot {filename}: {e}")
 
                 else:
                     vs.core.fpng.Write(
@@ -1529,11 +1566,19 @@ def run_comparison():
                         )
 
         slowpics_url = f"https://slow.pics/c/{key}"
-        print(f"\nSlowpoke Pics url: {slowpics_url}", end="")
-        pc.copy(slowpics_url)
+        print(f"\nSlowpoke Pics url: {slowpics_url}")
+
+        # Try to copy to clipboard (may fail on headless servers)
+        try:
+            pc.copy(slowpics_url)
+        except Exception:
+            pass  # Clipboard not available on headless systems
 
         if browser_open:
-            webbrowser.open(slowpics_url)
+            try:
+                webbrowser.open(slowpics_url)
+            except Exception:
+                pass  # Browser not available on headless systems
 
         if webhook_url:
             data = {"content": slowpics_url}

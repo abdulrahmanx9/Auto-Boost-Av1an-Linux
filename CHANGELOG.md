@@ -12,6 +12,15 @@ All notable changes to the Linux Port of Auto-Boost-Av1an will be documented in 
     - Encoded files are saved to `Output/`.
 - **Cleaner Workspace**: Intermediate temp files are now hidden in `.temp` directories inside `Output/`, preventing clutter.
 - **Safe Cleanup**: `cleanup.py` updated to support the new folder structure and strictly avoid deleting `.git` or project files.
+- **Extras Folder**: Ported `extras/` scripts to Linux:
+    - `encode-opus-audio.sh`: Batch audio re-encoding to Opus.
+    - `lossless-intermediary.sh`: Lossless x265 helper.
+    - `compare.sh`: VapourSynth-based video comparison tool.
+        - **Ported `comp.py`**:
+            - Switched from `lsmas` to `FFMS2` (native plugin support).
+            - Switched from `fpng` to `FFmpeg` for reliable screenshot generation without extra plugins.
+            - Added **SubText** support for on-screen frame info.
+            - Added **Headless Support**: Handles clipboard/browser errors gracefully on servers without X11.
 
 ### Fixed
 - **Tagging**: Fixed `tag.py` to correctly parse parameters from multiline shell scripts.
