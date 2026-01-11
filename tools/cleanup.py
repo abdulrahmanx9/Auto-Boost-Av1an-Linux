@@ -1,51 +1,75 @@
 import os
-import glob
 import shutil
 
+
 def cleanup_workspace():
-    # Get the current working directory (root folder where .bat was run)
-    cwd = os.getcwd()
-    print(f"Cleaning workspace in: {cwd}")
+    # Directories to scan for trash
+    scan_dirs = [".", "Input", "Output"]
 
-    # 1. Delete files matching *.ffindex and *.json
-    file_extensions = ['*.ffindex', '*.json']
-    for ext in file_extensions:
-        files = glob.glob(os.path.join(cwd, ext))
-        for file_path in files:
-            try:
-                os.remove(file_path)
-                print(f"Deleted file: {os.path.basename(file_path)}")
-            except OSError as e:
-                print(f"Error deleting {os.path.basename(file_path)}: {e}")
+    # Extensions to delete (Files)
+    extensions = [
+        ".ffindex",
+        ".lwi",
+        ".json",
+        ".log",
+        ".temp",
+        ".vpy",
+        ".stats",
+        ".mbtree",
+        ".zone",
+        ".csv",
+    ]
 
-    # 2. Delete 'logs' directory
-    logs_dir = os.path.join(cwd, 'logs')
-    if os.path.exists(logs_dir) and os.path.isdir(logs_dir):
-        try:
-            shutil.rmtree(logs_dir)
-            print("Deleted folder: logs")
-        except OSError as e:
-            print(f"Error deleting logs folder: {e}")
+    print("Cleaning up workspace...")
 
-    # 3. Delete Temp Folders based on naming convention
-    # Looks for folders ending in "-source", "-source_scenedetect.scene-detection.tmp"
-    # OR folders that start with a period (e.g., .temp, .cache)
-    
-    # Iterate over all items in the current directory
-    for item in os.listdir(cwd):
-        item_path = os.path.join(cwd, item)
-        
-        if os.path.isdir(item_path):
-            # Check for the specific temp folder suffixes or prefix
-            if (item.endswith("-source") or 
-                item.endswith("-source_scenedetect.scene-detection.tmp") or 
-                item.startswith(".")):
-                
-                try:
-                    shutil.rmtree(item_path)
-                    print(f"Deleted temp folder: {item}")
-                except OSError as e:
-                    print(f"Error deleting folder {item}: {e}")
+    for d in scan_dirs:
+        if not os.path.exists(d):
+            continue
+
+        for item in os.listdir(d):
+            item_path = os.path.join(d, item)
+
+            # 1. DELETE FILES
+            if os.path.isfile(item_path):
+                for ext in extensions:
+                    if item.lower().endswith(ext):
+                        try:
+                            # Avoid deleting scenes json if needed?
+                            # Usually cleanup removes json scenes. User accepted this behavior.
+                            os.remove(item_path)
+                            print(f"Deleted: {item_path}")
+                        except:
+                            pass
+                        break
+
+            # 2. DELETE DIRECTORIES (Temp folders)
+            elif os.path.isdir(item_path):
+                # Whitelist: Critical system/project folders to never touch
+                if item in [
+                    ".git",
+                    ".vscode",
+                    ".idea",
+                    "Input",
+                    "Output",
+                    "tools",
+                    "VapourSynth",
+                    "__pycache__",
+                    "venv",
+                ]:
+                    continue
+
+                # Condition: Starts with "." (Hidden temp) OR ends with ".tmp" OR ends with "-source"
+                if (
+                    item.startswith(".")
+                    or item.endswith(".tmp")
+                    or item.endswith("-source")
+                ):
+                    try:
+                        shutil.rmtree(item_path)
+                        print(f"Deleted temp dir: {item_path}")
+                    except:
+                        pass
+
 
 if __name__ == "__main__":
     cleanup_workspace()

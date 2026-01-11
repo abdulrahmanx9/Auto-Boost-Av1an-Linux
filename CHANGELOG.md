@@ -2,6 +2,20 @@
 
 All notable changes to the Linux Port of Auto-Boost-Av1an will be documented in this file.
 
+## [1.4.1-linux] - 2026-01-09
+
+### Added
+- **Live Action Scripts**: Dedicated batch scripts for live action content (`run_linux_live_*.sh`) with Auto-Crop enabled by default.
+- **Auto-Crop**: Integrated `cropdetect.py` (Linux port) for robust black bar removal.
+- **SSIMU2 Support**: Enabled `ssimu2` metrics using `vs-zip` backend.
+- **Script Consolidation**: Renamed generic scripts to `run_linux_anime_*.sh` for better organization.
+
+### Changed
+- **Parameter Sync**: Updated encoding parameters to match Auto-Boost-Av1an v1.41 (Windows).
+    - Anime Standard now uses Tune 3.
+    - Live Action High uses Tune 3 + Variance Boost 2.
+- **Core Update**: Updated `Auto-Boost-Av1an.py` to v2.9.20 with Linux patches (Path resolution, Shell usage).
+
 ## [1.1.0-linux] - 2026-01-08
 
 ### Added

@@ -189,9 +189,9 @@ if ! command -v SvtAv1EncApp &> /dev/null; then
     fi
 
     if [ -d "svt-av1-psy" ]; then rm -rf svt-av1-psy; fi
-    git clone https://github.com/5fish/svt-av1-psy.git
+    git clone -b ac-bias+exp https://github.com/5fish/svt-av1-psy.git
     cd svt-av1-psy
-    git checkout e87a5ae3
+    git checkout e87a5ae3 || echo "Warning: Commit e87a5ae3 not found. Using latest tip of ac-bias+exp."
     
     mkdir -p Build/linux
     cd Build/linux

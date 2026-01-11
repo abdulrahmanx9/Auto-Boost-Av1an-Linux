@@ -12,6 +12,7 @@
 # SVT-AV1:           Native Windows Version
 # FFmpeg:            Windows version
 # fssimu2:           Native Windows Version (in tools folder) for metrics
+# vs-zip:            Required for XPSNR (Default metric)
 
 # Auto-Boost-Essential (Native Windows Edition)
 # Modified for Native Av1an + Standard SVT-AV1 flow + fssimu2 + Zones Support
@@ -34,6 +35,7 @@ from rich.console import Console
 from statistics import quantiles
 from math import ceil, log10
 from pathlib import Path
+from collections import Counter
 import subprocess
 import argparse
 import platform
@@ -45,23 +47,33 @@ import gc
 import os
 import re
 import json
+import csv
 import numpy as np
 import concurrent.futures
 
-ver_str = "v2.9.11 (Fix SSIMU2 Fallback Format ID)"
+ver_str = "v2.9.20 (Clean UI)"
 
 # --- TOOL PATHS CONFIGURATION ---
 # Resolved to absolute paths immediately to prevent issues when subprocess changes cwd
 if platform.system() == "Windows":
     av1an_exe = Path(r"tools\av1an\av1an.exe").resolve()
     fssimu2_exe = Path(r"tools\fssimu2\fssimu2.exe").resolve()
+    cropdetect_script = Path(r"tools\cropdetect.py").resolve()
+    use_shell = True
 else:
-    # On Linux, assume tools are in PATH
-    av1an_path = shutil.which("av1an")
-    fssimu2_path = shutil.which("fssimu2")
+    av1an_exe = shutil.which("av1an")
+    if not av1an_exe:
+        print("Error: av1an not found in PATH")
+        sys.exit(1)
 
-    av1an_exe = Path(av1an_path) if av1an_path else Path("av1an")
-    fssimu2_exe = Path(fssimu2_path) if fssimu2_path else Path("fssimu2")
+    fssimu2_exe = Path("fssimu2_not_found")
+    if shutil.which("fssimu2"):
+        fssimu2_exe = Path(shutil.which("fssimu2"))
+
+    # Cropdetect is in tools/ relative to script
+    cropdetect_script = Path(__file__).parent / "tools" / "cropdetect.py"
+    use_shell = False
+
 # --------------------------------
 
 parser = argparse.ArgumentParser()
@@ -73,6 +85,12 @@ parser.add_argument(
 )
 parser.add_argument(
     "-i", "--input", required=True, help="Video input filepath (original source file)"
+)
+parser.add_argument(
+    "-o",
+    "--output",
+    help="Output video filepath | Default: input-av1.mkv",
+    default=None,
 )
 parser.add_argument(
     "--scenes",
@@ -117,10 +135,13 @@ parser.add_argument(
 )
 parser.add_argument(
     "--ssimu2",
-    nargs="?",
-    const="auto",
-    choices=["auto", "cpu", "gpu"],
-    help="SSIMU2 mode: Uses fssimu2 binary (choices are kept for compatibility but all map to fssimu2)",
+    help="SSIMU2 mode: auto, gpu, fssimu2, vs-hip | If omitted, defaults to XPSNR",
+    default=None,
+)
+parser.add_argument(
+    "--ssimu2-cpu-workers",
+    help="Number of workers for SSIMU2 CPU (fssimu2 or vs-zip) | Default: 4",
+    default="4",
 )
 parser.add_argument(
     "--workers", help="Number of Av1an workers | Default: 1", default="1"
@@ -159,6 +180,22 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+
+# --- PRIVACY HELPER ---
+def obscure_user_path(text: str) -> str:
+    """
+    Replaces any username in C:\\Users\\<username> with 'av1enjoyer'
+    to obscure the real username in console output.
+    """
+    if platform.system() == "Windows":
+        return re.sub(
+            r"(Users[\\/])([^\\/]+)", r"\1av1enjoyer", text, flags=re.IGNORECASE
+        )
+    return text
+
+
+# ----------------------
+
 stage = int(args.stage)
 src_file = Path(args.input).resolve()
 if platform.system() == "Windows":
@@ -170,15 +207,19 @@ if args.temp is not None:
     if platform.system() == "Windows":
         tmp_dir = type(tmp_dir)(r"\\?" + rf"\{tmp_dir}")
 else:
-    tmp_dir = output_dir / src_file.stem
+    tmp_dir = output_dir / f".{src_file.stem}.temp"
 
 # Files
 vpy_file = tmp_dir / f"{src_file.stem}.vpy"
 cache_file = tmp_dir / f"{src_file.stem}.ffindex"
 # Fast pass is now MKV
+# Fast pass is now MKV
 fast_output_file = tmp_dir / f"{src_file.stem}_fastpass.mkv"
 # Final output
-final_output_file = output_dir / f"{src_file.stem}-av1.mkv"
+if args.output:
+    final_output_file = Path(args.output).resolve()
+else:
+    final_output_file = output_dir / f"{src_file.stem}-av1.mkv"
 tmp_final_output_file = tmp_dir / f"{src_file.stem}-av1.mkv"
 
 ssimu2_log_file = tmp_dir / f"{src_file.stem}_ssimu2.log"
@@ -220,7 +261,14 @@ aggressive = args.aggressive
 unshackle = args.unshackle
 fast_params = args.fast_params if args.fast_params is not None else ""
 final_params = args.final_params if args.final_params is not None else ""
-ssimu2 = args.ssimu2 if args.ssimu2 is not None else ""
+
+# Handle ssimu2 default
+if args.ssimu2 is None:
+    ssimu2 = ""
+else:
+    ssimu2 = args.ssimu2.lower()
+
+ssimu2_cpu_workers = int(args.ssimu2_cpu_workers)
 verbose = args.verbose
 resume = args.resume
 no_boosting = args.no_boosting
@@ -237,9 +285,13 @@ if args.debug:
     print("Check for Tools")
     print("=" * 54)
     print(f"Av1an Path:   {av1an_exe}")
-    print(f"Av1an Exists: {av1an_exe.exists()}")
+    # print(f"Av1an Exists: {av1an_exe.exists()}") # av1an_exe might be string on Linux if not Path object
     print(f"fssimu2 Path:   {fssimu2_exe}")
-    print(f"fssimu2 Exists: {fssimu2_exe.exists()}")
+    print(
+        f"fssimu2 Exists: {fssimu2_exe.exists() if isinstance(fssimu2_exe, Path) else 'Unknown'}"
+    )
+    print(f"Cropdetect Path: {cropdetect_script}")
+    print(f"Cropdetect Exists: {cropdetect_script.exists()}")
     raise SystemExit(1)
 
 if not os.path.exists(src_file):
@@ -302,78 +354,116 @@ console = Console()
 
 def detect_crop_values(source_path: Path) -> tuple[int, int]:
     """
-    Detects crop values using ffmpeg at the 15-minute mark for 50 frames.
-    Returns (crop_top, crop_bottom).
+    Uses external tools/cropdetect.py to detect crop values.
+    Saves the CSV to the source directory (next to the input file/bat file).
     """
-    if verbose:
-        console.print("[yellow]Detecting crop values...[/yellow]")
+    console.print("Detecting crop values via cropdetect.py...")
+    # Just show filename, not the scary long path
+    console.print(f"[cyan]{source_path.name}[/cyan]")
 
-    if shutil.which("ffmpeg") is None:
+    if not cropdetect_script.exists():
         console.print(
-            "[red]FFmpeg not found! Cannot detect crop. Proceeding with 0 crop.[/red]"
+            f"[red]cropdetect.py not found at {cropdetect_script}. Proceeding with 0 crop.[/red]"
         )
         return 0, 0
 
+    csv_output = source_path.parent / f"{source_path.stem}_crop.csv"
+
+    # We use --progress-mode to get machine-readable updates
     cmd = [
-        "ffmpeg",
-        "-ss",
-        "900",  # 15 minutes
-        "-i",
+        sys.executable,
+        str(cropdetect_script),
         str(source_path),
-        "-vframes",
-        "50",
-        "-vf",
-        "cropdetect=24:16:0",
-        "-f",
-        "null",
-        "-",
+        "--out",
+        str(csv_output),
+        "--aggressive",
+        "--samples",
+        "3",
+        "--progress-mode",
     ]
 
+    # Run process and stream output to update progress bar
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        matches = re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", result.stderr)
-        if not matches:
-            if verbose:
-                console.print("[yellow]No crop detected or full frame.[/yellow]")
-            return 0, 0
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("[green]Sampling...", total=100)
 
-        from collections import Counter
+            # Popen allows real-time output reading
+            with subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+            ) as proc:
+                for line in proc.stdout:
+                    line = line.strip()
+                    if line.startswith("PROGRESS:"):
+                        try:
+                            # Parse PROGRESS:X
+                            percent = int(line.split(":")[1])
+                            progress.update(task, completed=percent)
+                        except (IndexError, ValueError):
+                            pass
+                    elif verbose:
+                        # Only show other lines if verbose is on
+                        # This keeps the main UI clean
+                        console.print(f"[dim]{line}[/dim]")
 
-        most_common = Counter(matches).most_common(1)[0][0]
-        w, h, x, y = map(int, most_common)
-
-        probe_cmd = [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=height",
-            "-of",
-            "csv=s=x:p=0",
-            str(source_path),
-        ]
-        probe_res = subprocess.run(probe_cmd, capture_output=True, text=True)
-        orig_h = int(probe_res.stdout.strip())
-
-        crop_top = y
-        crop_bottom = orig_h - (y + h)
-
-        if crop_top % 2 != 0:
-            crop_top -= 1
-        if crop_bottom % 2 != 0:
-            crop_bottom -= 1
-
-        if verbose:
-            console.print(
-                f"[green]Detected Crop - Top: {crop_top}, Bottom: {crop_bottom}[/green]"
-            )
-
-        return crop_top, crop_bottom
+                # Check return code
+                if proc.wait() != 0:
+                    console.print(
+                        "[red]Crop detection process finished with errors.[/red]"
+                    )
 
     except Exception as e:
-        console.print(f"[red]Error detecting crop: {e}. Defaulting to 0.[/red]")
+        console.print(f"[red]Error during crop detection execution: {e}[/red]")
+        return 0, 0
+
+    if not csv_output.exists():
+        console.print(
+            f"[yellow]Crop CSV not found after execution. Defaulting to 0.[/yellow]"
+        )
+        return 0, 0
+
+    # Read the CSV to get final values
+    try:
+        with open(csv_output, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            if not rows:
+                console.print(
+                    "[yellow]Cropdetect CSV was empty. Defaulting to 0.[/yellow]"
+                )
+                return 0, 0
+
+            row = rows[0]
+            orig_h = int(row["height"])
+            c_h = int(row["crop_h"])
+            c_y = int(row["crop_y"])
+
+            crop_top = c_y
+            crop_bottom = orig_h - (c_y + c_h)
+
+            # Ensure mod2
+            if crop_top % 2 != 0:
+                crop_top -= 1
+            if crop_bottom % 2 != 0:
+                crop_bottom -= 1
+
+            console.print(
+                f"[bold green]Crop Found:[/bold green] Top={crop_top}, Bottom={crop_bottom} [dim](Based on {row['crop']})[/dim]"
+            )
+            return crop_top, crop_bottom
+
+    except Exception as e:
+        console.print(f"[red]Failed to parse crop CSV: {e}[/red]")
         return 0, 0
 
 
@@ -595,8 +685,8 @@ def fast_pass() -> None:
     ]
 
     print("-" * 50)
-    print(f"Running Fast Pass (Native) in: {tmp_dir}")
-    print(f"Command:\n{' '.join(av1an_cmd)}")
+    print(f"Running Fast Pass (Native) in: {obscure_user_path(str(tmp_dir))}")
+    print(f"Command:\n{obscure_user_path(' '.join(av1an_cmd))}")
     print("-" * 50)
 
     try:
@@ -642,8 +732,8 @@ def final_pass() -> None:
 
     # Show command ALWAYS per user request
     print("-" * 50)
-    print(f"Running Final Pass (Native) in: {tmp_dir}")
-    print(f"Command:\n{' '.join(av1an_cmd)}")
+    print(f"Running Final Pass (Native) in: {obscure_user_path(str(tmp_dir))}")
+    print(f"Command:\n{obscure_user_path(' '.join(av1an_cmd))}")
     print("-" * 50)
 
     try:
@@ -681,245 +771,137 @@ def calculate_metric() -> None:
         )
         raise SystemExit(1)
 
-    skip = 6
+    skip = 3
     cut_source_clip = source_clip[::skip]
     cut_encoded_clip = encoded_clip[::skip]
 
     global ssimu2
+
+    # ----------------------------------------------------
+    # 1. ATTEMPT XPSNR (Default if ssimu2 is empty)
+    # ----------------------------------------------------
     if ssimu2 == "":
+        console.print("[yellow]Calculating XPSNR (Default)...[/yellow]")
         try:
+            # Check for vszip
+            if not hasattr(core, "vszip"):
+                console.print("[red]vs-zip plugin not found! Required for XPSNR.[/red]")
+                raise SystemExit(1)
+
             result = core.vszip.XPSNR(
                 cut_source_clip, cut_encoded_clip, temporal=False, verbose=False
             )
-        except:
-            console.print("[red]vs-zip not found/failed.[/red]")
-            raise SystemExit(1)
 
-        score_list = [[None] * cut_source_clip.num_frames for _ in range(3)]
+            # XPSNR requires storing Y, U, V separately
+            score_list = [[None] * cut_source_clip.num_frames for _ in range(3)]
 
-        def get_xpsnrprops(n, f):
-            for i, plane in enumerate(["Y", "U", "V"]):
-                val = f.props.get(f"XPSNR_{plane}")
-                score_list[i][n] = "100.0" if str(val) == "inf" else float(val)
+            def get_xpsnrprops(n: int, f: vs.VideoFrame) -> None:
+                for i, plane in enumerate(["Y", "U", "V"]):
+                    val = f.props.get(f"XPSNR_{plane}")
+                    # inf = perfect match
+                    if str(val) == "inf":
+                        score_list[i][n] = "100.0"
+                    else:
+                        score_list[i][n] = float(val)
 
-        with Progress(SpinnerColumn(), BarColumn(), FPSColumn(), console=console) as p:
-            task = p.add_task(
-                "Calculating XPSNR", total=cut_source_clip.num_frames * skip
-            )
-
-            def update_p(n, t):
-                p.update(task, advance=skip)
-
-            clip_async_render(result, progress=update_p, callback=get_xpsnrprops)
-
-        with open(xpsnr_log_file, "w") as file:
-            skip_offset = 0
-            for index in range(len(score_list[0])):
-                for i in range(skip):
-                    file.write(
-                        f"{index + skip_offset + i}: {score_list[0][index]} {score_list[1][index]} {score_list[2][index]}\n"
-                    )
-                skip_offset += skip - 1
-
-    else:
-        # FSSIMU2 IMPLEMENTATION (PARALLEL) WITH FALLBACK
-        if not fssimu2_exe.exists():
-            console.print(
-                f"[red]fssimu2 binary not found at {fssimu2_exe}! Cannot calculate metrics.[/red]"
-            )
-            raise SystemExit(1)
-
-        # Convert to RGB24 for PAM export
-        # Assume 709 matrix for HD content usually handled by this script
-        ref_rgb = cut_source_clip.resize.Bicubic(format=vs.RGB24, matrix_in_s="709")
-        dist_rgb = cut_encoded_clip.resize.Bicubic(format=vs.RGB24, matrix_in_s="709")
-
-        score_list = [None] * ref_rgb.num_frames
-        fallback_needed = False
-
-        # Helper function to write PAM
-        def write_pam(frame, filepath):
-            width, height = frame.width, frame.height
-            r = np.asarray(frame[0])
-            g = np.asarray(frame[1])
-            b = np.asarray(frame[2])
-            packed = np.dstack((r, g, b)).tobytes()
-            header = (
-                f"P7\n"
-                f"WIDTH {width}\n"
-                f"HEIGHT {height}\n"
-                f"DEPTH 3\n"
-                f"MAXVAL 255\n"
-                f"TUPLTYPE RGB\n"
-                f"ENDHDR\n"
-            ).encode()
-            with open(filepath, "wb") as f:
-                f.write(header)
-                f.write(packed)
-
-        # WORKER FUNCTION FOR PARALLEL EXECUTION
-        def process_frame(n):
-            if fallback_needed:
-                return n, 0.0  # Abort
-
-            # Request frames
-            f_ref = ref_rgb.get_frame(n)
-            f_dist = dist_rgb.get_frame(n)
-
-            # Use UNIQUE paths per frame to prevent workers overwriting each other
-            current_ref_path = tmp_dir / f"ref_{n}.pam"
-            current_dist_path = tmp_dir / f"dist_{n}.pam"
-
-            # Write Temp PAMs
-            write_pam(f_ref, current_ref_path)
-            write_pam(f_dist, current_dist_path)
-
-            # Sanitize paths
-            ref_str = str(current_ref_path).replace("\\\\?\\", "")
-            dist_str = str(current_dist_path).replace("\\\\?\\", "")
-
-            # Run fssimu2
-            cmd = [str(fssimu2_exe), ref_str, dist_str]
-            score = 0.0
-
-            try:
-                # shell=True is needed for Windows but can cause issues on Linux with list args behavior
-                use_shell = platform.system() == "Windows"
-                res = subprocess.run(
-                    cmd, capture_output=True, text=True, check=True, shell=use_shell
-                )
-
-                output = res.stdout.strip()
-                if not output:
-                    if res.stderr.strip():
-                        output = res.stderr.strip()
-
-                score = float(output)
-
-            except subprocess.CalledProcessError as e:
-                console.print(f"[red]fssimu2 crashed at frame {n * skip}.[/red]")
-                console.print(f"--- STDERR: {e.stderr}")
-                raise RuntimeError("fssimu2_crash")
-
-            except ValueError:
-                console.print(
-                    f"[red]fssimu2 returned invalid output at frame {n * skip}[/red]"
-                )
-                raise RuntimeError("fssimu2_invalid")
-
-            # Cleanup temp PAMs
-            try:
-                current_ref_path.unlink(missing_ok=True)
-                current_dist_path.unlink(missing_ok=True)
-            except:
-                pass
-
-            return n, score
-
-        # Execute Parallel Workers
-        try:
             with Progress(
-                SpinnerColumn(),
-                BarColumn(),
-                FPSColumn(),
-                TimeRemainingColumn(),
-                console=console,
+                SpinnerColumn(), BarColumn(), FPSColumn(), console=console
             ) as p:
                 task = p.add_task(
-                    "Calculating SSIMULACRA2 (6 Workers)",
-                    total=ref_rgb.num_frames * skip,
+                    "Calculating XPSNR", total=cut_source_clip.num_frames * skip
                 )
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-                    future_to_frame = {
-                        executor.submit(process_frame, n): n
-                        for n in range(ref_rgb.num_frames)
-                    }
+                def update_p(n, t):
+                    p.update(task, advance=skip)
 
-                    for future in concurrent.futures.as_completed(future_to_frame):
-                        try:
-                            n, score = future.result()
-                            score_list[n] = score
-                            p.update(task, advance=skip)
-                        except RuntimeError:
-                            console.print(
-                                "[red]Crash detected in worker! Stopping binary method and switching to fallback...[/red]"
-                            )
-                            fallback_needed = True
-                            executor.shutdown(wait=False, cancel_futures=True)
-                            break
+                clip_async_render(result, progress=update_p, callback=get_xpsnrprops)
+
+            # Write Log
+            with open(xpsnr_log_file, "w") as file:
+                skip_offset = 0
+                for index in range(len(score_list[0])):
+                    val_y = score_list[0][index]
+                    val_u = score_list[1][index]
+                    val_v = score_list[2][index]
+
+                    if val_y is None:
+                        val_y = 0.0
+                    if val_u is None:
+                        val_u = 0.0
+                    if val_v is None:
+                        val_v = 0.0
+
+                    for i in range(skip):
+                        file.write(
+                            f"{index + skip_offset + i}: {val_y} {val_u} {val_v}\n"
+                        )
+                    skip_offset += skip - 1
+            return
+
         except Exception as e:
-            console.print(
-                f"[yellow]Exception during pool execution: {e}. Fallback triggered.[/yellow]"
+            console.print(f"[red]XPSNR calculation failed: {e}[/red]")
+            raise SystemExit(1)
+
+    # ----------------------------------------------------
+    # 2. SSIMULACRA2 BRANCH
+    # ----------------------------------------------------
+
+    score_list = [None] * cut_source_clip.num_frames
+
+    tried_vship = False
+    metric_calculated = False
+
+    # ATTEMPT GPU (VS-HIP / VSHIP)
+    if ssimu2 in ["auto", "gpu", "vs-hip"]:
+        tried_vship = True
+        console.print("[yellow]Attempting SSIMULACRA2 via VS-HIP (GPU)...[/yellow]")
+
+        try:
+            if not hasattr(core, "vship"):
+                raise ImportError("Vship plugin (vs-hip) not found in VapourSynth.")
+
+            # Run Vship
+            result = core.vship.SSIMULACRA2(
+                cut_source_clip, cut_encoded_clip, numStream=3
             )
-            fallback_needed = True
 
-        # --- FALLBACK LOGIC ---
-        if fallback_needed:
-            console.print(
-                "[yellow]Falling back to vs-zip SSIMULACRA2 (4 workers)...[/yellow]"
-            )
+            def get_ssimu2props_vship(n, f):
+                val = f.props.get("_SSIMULACRA2")
+                if val is None:
+                    val = f.props.get("SSIMULACRA2")
+                if val is None:
+                    score_list[n] = 0.0
+                else:
+                    score_list[n] = float(val)
 
-            # Fallback uses VapourSynth's internal vs-zip plugin
-            # Set thread count as requested
-            core.num_threads = 4
-
-            try:
-                if not hasattr(core.vszip, "SSIMULACRA2"):
-                    console.print(
-                        "[red]Error: vs-zip does not support SSIMULACRA2 function. Cannot fallback.[/red]"
-                    )
-                    raise SystemExit(1)
-
-                # FIX: Use vs.RGB24 (valid format ID) instead of vs.RGB (ColorFamily enum)
-                # vs.RGB24 is 8-bit integer RGB (usually Packed, but widely supported)
-                fallback_ref = cut_source_clip.resize.Bicubic(
-                    format=vs.RGB24, matrix_in_s="709"
-                )
-                fallback_dist = cut_encoded_clip.resize.Bicubic(
-                    format=vs.RGB24, matrix_in_s="709"
+            with Progress(
+                SpinnerColumn(), BarColumn(), FPSColumn(), console=console
+            ) as p:
+                task = p.add_task(
+                    "Calculating SSIMULACRA2 (VS-HIP)",
+                    total=cut_source_clip.num_frames * skip,
                 )
 
-                # Calculate metric using plugin
-                result = core.vszip.SSIMULACRA2(fallback_ref, fallback_dist)
+                def update_p(n, t):
+                    p.update(task, advance=skip)
 
-                score_list = [None] * cut_source_clip.num_frames
+                clip_async_render(
+                    result, progress=update_p, callback=get_ssimu2props_vship
+                )
 
-                def get_ssimprops(n, f):
-                    # Try standard property first
-                    val = f.props.get("_SSIMULACRA2")
-                    # Try alternate property name just in case
-                    if val is None:
-                        val = f.props.get("SSIMULACRA2")
-                    if val is None:
-                        val = f.props.get("float_ssimulacra2")
+            metric_calculated = True
 
-                    if val is None:
-                        if n == 0:
-                            console.print(
-                                "[red]Warning: _SSIMULACRA2 property missing in fallback frame 0[/red]"
-                            )
-                        score_list[n] = 0.0
-                    else:
-                        score_list[n] = float(val)
-
-                with Progress(
-                    SpinnerColumn(), BarColumn(), FPSColumn(), console=console
-                ) as p:
-                    task = p.add_task(
-                        "Calculating SSIMULACRA2 (VS-ZIP Fallback)",
-                        total=cut_source_clip.num_frames * skip,
-                    )
-
-                    def update_p(n, t):
-                        p.update(task, advance=skip)
-
-                    clip_async_render(result, progress=update_p, callback=get_ssimprops)
-            except Exception as e:
-                console.print(f"[red]Fallback failed: {e}[/red]")
+        except Exception as e:
+            if ssimu2 == "auto":
+                console.print(
+                    f"[yellow]VS-HIP failed or not found ({e}). Falling back to next method.[/yellow]"
+                )
+            else:
+                console.print(f"[red]VS-HIP failed: {e}.[/red]")
                 raise SystemExit(1)
 
-        # Write log
+    if metric_calculated:
+        # Write log and exit function
         with open(ssimu2_log_file, "w") as file:
             skip_offset = 0
             for index, score in enumerate(score_list):
@@ -927,6 +909,215 @@ def calculate_metric() -> None:
                 for i in range(skip):
                     file.write(f"{index + skip_offset + i}: {final_score}\n")
                 skip_offset += skip - 1
+        return
+
+    # ATTEMPT BINARY (fssimu2)
+    fallback_needed = False
+
+    if ssimu2 in ["auto", "fssimu2"]:
+        if not fssimu2_exe.exists():
+            if ssimu2 == "auto":
+                console.print(
+                    f"[yellow]fssimu2 binary not found at {fssimu2_exe}! Switching to fallback.[/yellow]"
+                )
+                fallback_needed = True
+            else:
+                console.print(
+                    f"[red]fssimu2 binary not found at {fssimu2_exe}! Cannot calculate metrics.[/red]"
+                )
+                raise SystemExit(1)
+
+        if not fallback_needed:
+            console.print(
+                f"[yellow]Calculating SSIMULACRA2 via fssimu2 (Binary | {ssimu2_cpu_workers} Workers)...[/yellow]"
+            )
+
+            # Convert to RGB24 for PAM export
+            ref_rgb = cut_source_clip.resize.Bicubic(format=vs.RGB24, matrix_in_s="709")
+            dist_rgb = cut_encoded_clip.resize.Bicubic(
+                format=vs.RGB24, matrix_in_s="709"
+            )
+
+            # Helper function to write PAM
+            def write_pam(frame, filepath):
+                width, height = frame.width, frame.height
+                r = np.asarray(frame[0])
+                g = np.asarray(frame[1])
+                b = np.asarray(frame[2])
+                packed = np.dstack((r, g, b)).tobytes()
+                header = (
+                    f"P7\n"
+                    f"WIDTH {width}\n"
+                    f"HEIGHT {height}\n"
+                    f"DEPTH 3\n"
+                    f"MAXVAL 255\n"
+                    f"TUPLTYPE RGB\n"
+                    f"ENDHDR\n"
+                ).encode()
+                with open(filepath, "wb") as f:
+                    f.write(header)
+                    f.write(packed)
+
+            # WORKER FUNCTION FOR PARALLEL EXECUTION
+            def process_frame(n):
+                if fallback_needed:
+                    return n, 0.0  # Abort
+
+                f_ref = ref_rgb.get_frame(n)
+                f_dist = dist_rgb.get_frame(n)
+
+                current_ref_path = tmp_dir / f"ref_{n}.pam"
+                current_dist_path = tmp_dir / f"dist_{n}.pam"
+
+                write_pam(f_ref, current_ref_path)
+                write_pam(f_dist, current_dist_path)
+
+                ref_str = str(current_ref_path).replace("\\\\?\\", "")
+                dist_str = str(current_dist_path).replace("\\\\?\\", "")
+
+                cmd = [str(fssimu2_exe), ref_str, dist_str]
+                score = 0.0
+
+                try:
+                    res = subprocess.run(
+                        cmd, capture_output=True, text=True, check=True, shell=use_shell
+                    )
+                    output = res.stdout.strip() or res.stderr.strip()
+                    score = float(output)
+
+                except subprocess.CalledProcessError as e:
+                    console.print(f"[red]fssimu2 crashed at frame {n * skip}.[/red]")
+                    raise RuntimeError("fssimu2_crash")
+                except ValueError:
+                    console.print(
+                        f"[red]fssimu2 returned invalid output at frame {n * skip}[/red]"
+                    )
+                    raise RuntimeError("fssimu2_invalid")
+
+                try:
+                    current_ref_path.unlink(missing_ok=True)
+                    current_dist_path.unlink(missing_ok=True)
+                except:
+                    pass
+
+                return n, score
+
+            try:
+                workers_count = ssimu2_cpu_workers
+                with Progress(
+                    SpinnerColumn(),
+                    BarColumn(),
+                    FPSColumn(),
+                    TimeRemainingColumn(),
+                    console=console,
+                ) as p:
+                    task = p.add_task(
+                        f"Calculating SSIMULACRA2 ({workers_count} Workers)",
+                        total=ref_rgb.num_frames * skip,
+                    )
+
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=workers_count
+                    ) as executor:
+                        future_to_frame = {
+                            executor.submit(process_frame, n): n
+                            for n in range(ref_rgb.num_frames)
+                        }
+
+                        for future in concurrent.futures.as_completed(future_to_frame):
+                            try:
+                                n, score = future.result()
+                                score_list[n] = score
+                                p.update(task, advance=skip)
+                            except RuntimeError:
+                                if ssimu2 == "auto":
+                                    console.print(
+                                        "[red]Crash detected in worker! Switching to fallback...[/red]"
+                                    )
+                                    fallback_needed = True
+                                    executor.shutdown(wait=False, cancel_futures=True)
+                                    break
+                                else:
+                                    console.print(
+                                        "[red]Crash detected in worker! Aborting.[/red]"
+                                    )
+                                    raise SystemExit(1)
+            except Exception as e:
+                if ssimu2 == "auto":
+                    console.print(
+                        f"[yellow]Exception during pool execution: {e}. Fallback triggered.[/yellow]"
+                    )
+                    fallback_needed = True
+                else:
+                    console.print(f"[red]Exception during pool execution: {e}.[/red]")
+                    raise SystemExit(1)
+
+            if not fallback_needed:
+                metric_calculated = True
+
+    # FALLBACK CPU (VS-ZIP)
+    console.print(
+        f"[yellow]Calculating SSIMULACRA2 (VS-ZIP Fallback | {ssimu2_cpu_workers} workers)...[/yellow]"
+    )
+
+    core.num_threads = ssimu2_cpu_workers
+
+    try:
+        if not hasattr(core, "vszip") or not hasattr(core.vszip, "SSIMULACRA2"):
+            console.print(
+                "[red]Error: vs-zip plugin not found or does not support SSIMULACRA2. Cannot fallback.[/red]"
+            )
+            raise SystemExit(1)
+
+        fallback_ref = cut_source_clip.resize.Bicubic(
+            format=vs.RGB24, matrix_in_s="709"
+        )
+        fallback_dist = cut_encoded_clip.resize.Bicubic(
+            format=vs.RGB24, matrix_in_s="709"
+        )
+
+        result = core.vszip.SSIMULACRA2(fallback_ref, fallback_dist)
+
+        score_list = [None] * cut_source_clip.num_frames
+
+        def get_ssimprops(n, f):
+            val = f.props.get("_SSIMULACRA2")
+            if val is None:
+                val = f.props.get("SSIMULACRA2")
+            if val is None:
+                val = f.props.get("float_ssimulacra2")
+
+            if val is None:
+                if n == 0:
+                    console.print(
+                        "[red]Warning: _SSIMULACRA2 property missing in fallback frame 0[/red]"
+                    )
+                score_list[n] = 0.0
+            else:
+                score_list[n] = float(val)
+
+        with Progress(SpinnerColumn(), BarColumn(), FPSColumn(), console=console) as p:
+            task = p.add_task(
+                f"Calculating SSIMULACRA2 (VS-ZIP)",
+                total=cut_source_clip.num_frames * skip,
+            )
+
+            def update_p(n, t):
+                p.update(task, advance=skip)
+
+            clip_async_render(result, progress=update_p, callback=get_ssimprops)
+
+    except Exception as e:
+        console.print(f"[red]Fallback failed: {e}[/red]")
+        raise SystemExit(1)
+
+    with open(ssimu2_log_file, "w") as file:
+        skip_offset = 0
+        for index, score in enumerate(score_list):
+            final_score = score if score is not None else 0.0
+            for i in range(skip):
+                file.write(f"{index + skip_offset + i}: {final_score}\n")
+            skip_offset += skip - 1
 
 
 def metrics_aggregation(score_list: list[float]) -> tuple[float, float, float]:
@@ -1040,9 +1231,15 @@ def merge_params(
 def calculate_zones_json(ranges: list[float], hr: bool, nframe: int) -> None:
     metric_scores = []
 
+    # If using XPSNR (Default behavior if ssimu2 string is empty)
     if ssimu2 == "":
+        if not xpsnr_log_file.exists():
+            console.print("[red]XPSNR log file missing! Did stage 2 finish?[/red]")
+            raise SystemExit(1)
+
         with open(xpsnr_log_file, "r") as file:
             for line in file:
+                # Format: "frame: y u v"
                 match = re.search(
                     r"([0-9]+): ([0-9]+\.[0-9]+) ([0-9]+\.[0-9]+) ([0-9]+\.[0-9]+)",
                     line,
@@ -1054,17 +1251,28 @@ def calculate_zones_json(ranges: list[float], hr: bool, nframe: int) -> None:
                         float(match.group(4)),
                     )
                     maxval = 255
-                    w_mse = (
-                        (4 * (maxval**2 / (10 ** (score_y / 10))))
-                        + (maxval**2 / (10 ** (score_u / 10)))
-                        + (maxval**2 / (10 ** (score_v / 10)))
-                    ) / 6
-                    metric_scores.append(10 * log10((maxval**2) / w_mse))
+                    # Convert PSNR to MSE
+                    # avoid div by zero if perfect match
+                    try:
+                        mse_y = (maxval**2) / (10 ** (score_y / 10))
+                        mse_u = (maxval**2) / (10 ** (score_u / 10))
+                        mse_v = (maxval**2) / (10 ** (score_v / 10))
+                    except OverflowError:
+                        mse_y, mse_u, mse_v = 0.0001, 0.0001, 0.0001  # approx 0
+
+                    # 4:1:1 weighted average (Y is dominant)
+                    w_mse = ((4.0 * mse_y) + mse_u + mse_v) / 6.0
+
+                    if w_mse <= 0:
+                        w_mse = 0.000001
+
+                    # Convert back to Logarithmic Score (Similar to PSNR but weighted)
+                    score_weighted = 10.0 * log10((maxval**2) / w_mse)
+                    metric_scores.append(score_weighted)
     else:
+        # SSIMU2 read
         with open(ssimu2_log_file, "r") as file:
             for line in file:
-                # UPDATED REGEX: Matches integers, floats (0.98), scientific notation (1.23e-05)
-                # This guarantees we catch whatever format python wrote to the file
                 match = re.search(r"([0-9]+): (-?[0-9eE\.\-\+]+)", line)
                 if match:
                     metric_scores.append(float(match.group(2)))
@@ -1294,10 +1502,12 @@ def calculate_zones_json(ranges: list[float], hr: bool, nframe: int) -> None:
     with open(scenes_file, "w") as f:
         json.dump(output_json, f, indent=2)
 
-    console.print(f"[cyan]Generated Av1an scenes file: {scenes_file}[/cyan]")
+    console.print(
+        f"[cyan]Generated Av1an scenes file: {obscure_user_path(str(scenes_file))}[/cyan]"
+    )
 
 
-console.print("[bold]Auto-boost (Native-Av1an + fssimu2) start!\n")
+console.print("[bold]Auto-Boost-Av1an start!\n")
 
 if no_boosting:
     stage = 4
@@ -1328,7 +1538,10 @@ match stage:
             print("Stage 3 complete!")
         if stage_resume < 5:
             final_pass()
-            shutil.move(tmp_final_output_file, final_output_file)
+            try:
+                shutil.move(tmp_final_output_file, final_output_file)
+            except:
+                pass  # Can crash if same file
             with open(stage_file, "w") as file:
                 file.write("5")
             print("Stage 4 complete!")
@@ -1356,7 +1569,10 @@ match stage:
         print("Stage 3 complete!")
     case 4:
         final_pass()
-        shutil.move(tmp_final_output_file, final_output_file)
+        try:
+            shutil.move(tmp_final_output_file, final_output_file)
+        except:
+            pass
         with open(stage_file, "w") as file:
             file.write("5")
         print("Stage 4 complete!")

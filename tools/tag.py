@@ -262,7 +262,11 @@ def main():
     if script_path:
         try:
             with open(script_path, "r", encoding="utf-8") as f:
-                for line in f:
+                full_content = f.read()
+                # Join lines ending with backslash
+                full_content = full_content.replace("\\\n", " ")
+
+                for line in full_content.splitlines():
                     strip = line.strip().lower()
                     if (not strip.startswith("#")) and (
                         "dispatch.py" in strip or "auto-boost-av1an.py" in strip

@@ -109,44 +109,6 @@ sudo cp ../zig-out/lib/libvszip.so /usr/local/lib/vapoursynth/
 
 *Alternatively, you can install the `fssimu2` binary and place it in your PATH to avoid needing `vszip`.*
 
-## Usage
-
-1.  Place your source files (e.g., `yourfile-source.mkv`)
-2.  Make the script executable:
-    ```bash
-    chmod +x run_linux_crf30.sh
-    chmod +x run_linux_crf25.sh
-    chmod +x run_linux_crf15.sh
-    ```
-### 3. Run the Script
-We provide variants based on quality targets. All scripts now support **Auto-BT.709 Detection** (via `dispatch.py` and `mediainfo`) and will automatically inject color parameters for HD content.
-
-*   **Standard Quality (CRF 30)**:
-    ```bash
-    ./run_linux_crf30.sh
-    ```
-    Good balance of speed and quality. Equivalent to the old `batch.bat`.
-
-*   **High Quality (CRF 25)**:
-    ```bash
-    ./run_linux_crf25.sh
-    ```
-    Slower, higher fidelity (Tune 0, extra variance boost). Equivalent to `crf25-batch-high-quality.bat`.
-
-*   **Very High Quality (CRF 15 / Thicc)**:
-    ```bash
-    ./run_linux_crf15.sh
-    ```
-    Aggressive boosting, CRF 15 target. For maximum preservation.
-
-The script will:
-1.  Detect Scene Changes.
-2.  Start Av1an with the optimized parameters.
-3.  Automatically calculate worker count based on your hardware (on first run).
-4.  Run Auto-Boost-Av1an (Fast Pass -> Metrics -> Zones -> Final Encode).
-5.  Mux audio/subtitles back.
-6.  Tag the output file.
-7.  Cleanup temporary files.
 
 ## Verification
 
@@ -166,6 +128,35 @@ python3 -c "import vapoursynth; print(f'VapourSynth Core: {vapoursynth.core.vers
 av1an --version
 SvtAv1EncApp --help | grep "SVT"
 ```
+## Usage
+
+1.  Place your source files (e.g., `yourfile-source.mkv`)
+2.  Make the script executable:
+    ```bash
+    chmod +x run_linux_anime_*.sh
+    chmod +x run_linux_live_*.sh
+    ```
+### 3. Run the Script
+We provide variants based on content type (Anime vs Live Action) and quality. All scripts support **Auto-BT.709 Detection**.
+
+**Anime Variants:**
+*   **Standard (CRF 30)**: `./run_linux_anime_crf30.sh` - Balanced speed/quality (Tune 3).
+*   **High (CRF 25)**: `./run_linux_anime_crf25.sh` - Slower, Tune 0.
+*   **Highest (CRF 15)**: `./run_linux_anime_crf15.sh` - Aggressive boosting.
+
+**Live Action Variants (Auto-Crop Enabled):**
+*   **Standard (CRF 30)**: `./run_linux_live_crf30.sh` - Auto-crop, Tune 3.
+*   **High (CRF 25)**: `./run_linux_live_crf25.sh` - Tune 3, Variance Boost 2.
+*   **Highest (CRF 15)**: `./run_linux_live_crf15.sh` - Maximum fidelity.
+
+The script will:
+1.  Detect Scene Changes.
+2.  Start Av1an with the optimized parameters.
+3.  Automatically calculate worker count based on your hardware (on first run).
+4.  Run Auto-Boost-Av1an (Fast Pass -> Metrics -> Zones -> Final Encode).
+5.  Mux audio/subtitles back.
+6.  Tag the output file.
+7.  Cleanup temporary files.
 
 ## Troubleshooting
 
@@ -179,11 +170,12 @@ If you are moving this project to a Linux machine, you only need the following f
 
 **Root Directory:**
 -   `Auto-Boost-Av1an.py`
--   `run_linux_crf30.sh` (and variants)
--   `README_LINUX.md`
+-   `run_linux_anime_crf30.sh` (and all other .sh variants)
+-   `README.md` (renamed to README_LINUX.md if distributing standalone)
 
 **Tools Directory (`tools/`):**
 -   `tools/dispatch.py` (New)
+-   `tools/cropdetect.py` (New - auto-crop support)
 -   `tools/Progressive-Scene-Detection.py`
 -   `tools/cleanup.py`
 -   `tools/mux.py`

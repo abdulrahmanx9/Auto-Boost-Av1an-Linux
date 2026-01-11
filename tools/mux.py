@@ -3,100 +3,80 @@ import subprocess
 import glob
 import sys
 import shutil
-import platform
-
-# Path to mkvmerge executable
-if platform.system() == "Windows":
-    MKVMERGE = os.path.join("tools", "MKVToolNix", "mkvmerge.exe")
-else:
-    MKVMERGE = shutil.which("mkvmerge") or "mkvmerge"
-
-
-def run_mkvmerge(cmd, status_label):
-    """
-    Runs mkvmerge hidden, parsing output to update a single progress line.
-    """
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-    )
-
-    # Print initial status with extra spaces to reserve the line
-    print(f"{status_label}: Starting...          ", end="\r")
-    sys.stdout.flush()
-
-    for line in process.stdout:
-        line = line.strip()
-        # mkvmerge output standard: "Progress: 10%"
-        if line.startswith("Progress:"):
-            percent = line.split(":")[-1].strip()
-            # Update the line with the percentage + padding spaces
-            print(f"{status_label}: {percent}          ", end="\r")
-            sys.stdout.flush()
-
-    process.wait()
-
-    if process.returncode != 0:
-        print(f"\n[ERROR] Command failed: {' '.join(cmd)}")
-        raise subprocess.CalledProcessError(process.returncode, cmd)
-
-    # Finalize the line with explicit spaces to overwrite "Starting..." or percentages
-    print(f"{status_label}: Done.          ")
 
 
 def mux_files():
-    # Look for files ending in -av1.mkv
-    av1_files = glob.glob("*-av1.mkv")
+    output_dir = "Output"
+    input_dir = "Input"
+
+    # Fallback to current dir if no Output folder found
+    if not os.path.exists(output_dir):
+        output_dir = "."
+        input_dir = "."
+
+    print(f"Scanning {output_dir} for AV1 files...")
+
+    av1_files = glob.glob(os.path.join(output_dir, "*-av1.mkv"))
 
     if not av1_files:
         print("No *-av1.mkv files found to mux.")
         return
 
-    print(f"Found {len(av1_files)} '-av1.mkv' files. Starting muxing process...\n")
+    print(f"Found {len(av1_files)} '-av1.mkv' files.\n")
+
+    mkvmerge = shutil.which("mkvmerge") or "mkvmerge"
 
     for av1_file in av1_files:
-        # Determine base name by removing the suffix
-        # e.g. "File-source-av1.mkv" -> "File-source"
-        base_name = av1_file.replace("-av1.mkv", "")
+        filename = os.path.basename(av1_file)
+        base_name = filename.replace("-av1.mkv", "")
 
-        # Check for matching source file.
-        # 1. Check strict match (e.g. "File-source.mkv")
-        # 2. Check appended match (e.g. "File-source.mkv" if base was just "File")
-        possible_sources = [f"{base_name}.mkv", f"{base_name}-source.mkv"]
+        # Search for source video in Input folder
+        candidates = [
+            os.path.join(input_dir, f"{base_name}.mkv"),
+            os.path.join(input_dir, f"{base_name}-source.mkv"),
+        ]
 
         source_mkv = None
-        for path in possible_sources:
-            if os.path.exists(path):
-                source_mkv = path
+        for c in candidates:
+            if os.path.exists(c):
+                source_mkv = c
                 break
 
         if not source_mkv:
-            print(f"[SKIP] Source file not found for: {av1_file}")
-            # Optional: print what we looked for to help debugging
-            # print(f"       Checked: {possible_sources}")
+            print(f"[SKIP] Source video not found for: {filename}")
             continue
 
-        temp_mkv = f"{base_name}_temp_no_video.mkv"
-        final_output = f"{base_name}-output.mkv"
+        final_output = os.path.join(output_dir, f"{base_name}-output.mkv")
+        temp_audio = os.path.join(output_dir, f"{base_name}_temp_extract.mkv")
 
+        # Avoid muxing if output exists? (No, overwrite logic or user deletes)
+
+        print(f"Muxing: {base_name}...")
         try:
-            # Step 1: Extract Audio/Subs (No Video) from the source file
-            cmd_step1 = [MKVMERGE, "-o", temp_mkv, "--no-video", source_mkv]
-            run_mkvmerge(cmd_step1, f"[{base_name}] Step 1/2 (Extract)")
+            # Step 1: Extract Audio/Subs from source (--no-video)
+            subprocess.run(
+                [mkvmerge, "-o", temp_audio, "--no-video", source_mkv],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
-            # Step 2: Mux the new AV1 video file + the extracted Audio/Subs
-            cmd_step2 = [MKVMERGE, "-o", final_output, av1_file, temp_mkv]
-            run_mkvmerge(cmd_step2, f"[{base_name}] Step 2/2 (Merge)  ")
+            # Step 2: Merge AV1 video + Extracted Audio
+            subprocess.run(
+                [mkvmerge, "-o", final_output, av1_file, temp_audio],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
-            # Cleanup temp file
-            if os.path.exists(temp_mkv):
-                os.remove(temp_mkv)
+            print(f"  -> Done: {final_output}")
 
-        except subprocess.CalledProcessError:
-            print(f"\n[FAIL] Could not process {base_name}. Skipping.")
+            # Cleanup temp extract
+            if os.path.exists(temp_audio):
+                os.remove(temp_audio)
+
+        except Exception as e:
+            print(f"  [ERROR] Mux failed: {e}")
 
 
 if __name__ == "__main__":
