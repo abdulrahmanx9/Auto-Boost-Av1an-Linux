@@ -2,6 +2,21 @@
 
 All notable changes to the Linux Port of Auto-Boost-Av1an will be documented in this file.
 
+## [1.5.0-linux] - 2026-01-11
+
+### Added
+- **fssimu2 Support**: Updated `install_deps_ubuntu.sh` to compile native `fssimu2` from Rust source for full feature parity with Windows.
+- **Input/Output Workflow**: 
+    - All shell scripts now auto-create `Input/` and `Output/` folders.
+    - Scripts process any `.mkv` file in the `Input/` folder (no longer requires `*-source.mkv` naming).
+    - Encoded files are saved to `Output/`.
+- **Cleaner Workspace**: Intermediate temp files are now hidden in `.temp` directories inside `Output/`, preventing clutter.
+- **Safe Cleanup**: `cleanup.py` updated to support the new folder structure and strictly avoid deleting `.git` or project files.
+
+### Fixed
+- **Tagging**: Fixed `tag.py` to correctly parse parameters from multiline shell scripts.
+- **Paths**: Updated `mux.py` and `cleanup.py` to be folder-aware.
+
 ## [1.4.1-linux] - 2026-01-09
 
 ### Added

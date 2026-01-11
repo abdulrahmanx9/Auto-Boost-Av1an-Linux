@@ -60,6 +60,13 @@ Manual install:
 cargo install --git https://github.com/rust-av/Av1an.git
 ```
 
+### 5. fssimu2 (Metrics)
+The automated installer compiles this native Rust tool for identical Windows parity.
+Manual install:
+```bash
+cargo install --git https://github.com/gianni-rosato/fssimu2.git
+```
+
 ### 5. SVT-AV1
 
 The automatic installer compiles **SVT-AV1-PSY** (Psycho-visual fork) with Clang and PGO/LTO optimizations for best quality and speed on Linux.
@@ -119,6 +126,7 @@ To verify that the installation was successful, run the following commands:
 ffmpeg -version | head -n 1
 mkvmerge --version
 python3 --version
+mediainfo --version
 
 # Check VapourSynth
 vspipe --version
@@ -127,16 +135,28 @@ python3 -c "import vapoursynth; print(f'VapourSynth Core: {vapoursynth.core.vers
 # Check Encoders
 av1an --version
 SvtAv1EncApp --help | grep "SVT"
+
+# Check Metrics Tools
+zig version
+fssimu2 --version || echo "fssimu2 not installed (optional - will use vs-zip fallback)"
+
+# Check VapourSynth Plugins
+python3 -c "from vapoursynth import core; print('WWXD:', hasattr(core, 'wwxd')); print('VSZIP:', hasattr(core, 'vszip'))"
 ```
 ## Usage
 
-1.  Place your source files (e.g., `yourfile-source.mkv`)
-2.  Make the script executable:
+### 3. Usage
+
+1.  Place your source files (e.g., `.mkv` or `.mp4`) into the `Input/` folder.
+    *   *Note: The script will create this folder automatically if it doesn't exist.*
+    *   *Note: Files do NOT need to be renamed to `*-source.mkv` anymore.*
+2.  Make the scripts executable (if not already):
     ```bash
     chmod +x run_linux_anime_*.sh
     chmod +x run_linux_live_*.sh
     ```
-### 3. Run the Script
+3.  Run the script variant of your choice.
+    *   Your final encoded files will appear in the `Output/` folder.
 We provide variants based on content type (Anime vs Live Action) and quality. All scripts support **Auto-BT.709 Detection**.
 
 **Anime Variants:**

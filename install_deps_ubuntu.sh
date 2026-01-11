@@ -163,6 +163,51 @@ else
     export LIBRARY_PATH="/usr/local/lib:$LIBRARY_PATH"
 fi
 
+# 5b. fssimu2 (Standalone SSIMULACRA2 Metric Tool - Zig Build)
+if ! command -v fssimu2 &> /dev/null; then
+    echo "==========================================================="
+    echo "Installing fssimu2 (Zig Build)..."
+    echo "==========================================================="
+    
+    # Install fssimu2 dependencies
+    apt install -y libjpeg-turbo8-dev libwebp-dev libavif-dev
+    
+    # Download Zig 0.15.1 (required version)
+    ZIG_VERSION="0.15.1"
+    ZIG_TARBALL="zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+    ZIG_URL="https://ziglang.org/download/${ZIG_VERSION}/${ZIG_TARBALL}"
+    ZIG_DIR="zig-x86_64-linux-${ZIG_VERSION}"
+    
+    if [ ! -f "/usr/local/bin/zig" ] || ! zig version 2>/dev/null | grep -q "${ZIG_VERSION}"; then
+        echo "Downloading Zig ${ZIG_VERSION}..."
+        wget -q "$ZIG_URL" -O "/tmp/${ZIG_TARBALL}"
+        tar -xf "/tmp/${ZIG_TARBALL}" -C /tmp
+        cp "/tmp/${ZIG_DIR}/zig" /usr/local/bin/
+        cp -r "/tmp/${ZIG_DIR}/lib" /usr/local/lib/zig
+        rm -rf "/tmp/${ZIG_TARBALL}" "/tmp/${ZIG_DIR}"
+        echo "Zig ${ZIG_VERSION} installed."
+    fi
+    
+    # Clone and build fssimu2
+    if [ -d "fssimu2" ]; then rm -rf fssimu2; fi
+    git clone https://github.com/gianni-rosato/fssimu2.git
+    cd fssimu2
+    
+    echo "Building fssimu2 with Zig..."
+    zig build --release=fast --prefix /usr/local
+    
+    cd ..
+    rm -rf fssimu2
+    
+    if command -v fssimu2 &> /dev/null; then
+        echo "fssimu2 installed successfully to /usr/local/bin/fssimu2"
+    else
+        echo "WARNING: fssimu2 build may have failed. Check for errors above."
+    fi
+else
+    echo "fssimu2 is already installed."
+fi
+
 # Create a build directory
 mkdir -p build_tmp
 cd build_tmp
