@@ -4,13 +4,16 @@ This script was originally written for VS R53 and Python 3.9, and has been teste
 
 You'll need:
 - VapourSynth (https://github.com/vapoursynth/vapoursynth/releases)
-- "pip install anitopy pyperclip requests requests_toolbelt natsort vstools rich colorama" in terminal (without quotes)
+- "pip install anitopy pyperclip requests requests_toolbelt natsort vstools rich colorama psutil" in terminal (without quotes)
 - "vsrepo install fpng lsmas sub" in terminal (without quotes) or the following installed to your usual VapourSynth plugins folder:
     - https://github.com/Mikewando/vsfpng
     - https://github.com/AkarinVS/L-SMASH-Works/releases/latest
     - https://github.com/vapoursynth/subtext/releases/latest
     - Note: plugins folder is typically found in "%AppData%\Roaming\VapourSynth\plugins64" or "C:\Program Files\VapourSynth\plugins"
 - Optional: If using FFmpeg, it must be installed and in PATH.
+- Optional: oxipng for lossless PNG compression (install with: cargo install oxipng)
+
+This script has been modified to run oxipng lossless compression before uploading.
 
 How to use:
 - Drop comp.py into a folder with the video files you want to compare.
@@ -129,6 +132,8 @@ motion_diff_radius = 4
 
 ### Not recommended to change stuff below
 import os, sys, time, textwrap, re, uuid, random, pathlib, requests, vstools, webbrowser, colorama, shutil, fractions, subprocess
+import psutil
+import concurrent.futures
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 from natsort import os_sorted
 import anitopy as ani
@@ -1452,6 +1457,67 @@ def run_comparison():
 
     print()
     # print(time.time() - START_TIME)
+
+    # Oxipng integration with progress bar and stats
+    oxipng_exe = shutil.which("oxipng")
+
+    if oxipng_exe:
+        png_files = sorted(
+            [f for f in screen_dir.iterdir() if f.suffix.lower() == ".png"]
+        )
+        if png_files:
+            total_size_before = sum(f.stat().st_size for f in png_files)
+
+            # Detect CPU threads for parallel execution
+            oxipng_workers = psutil.cpu_count(logical=True)
+
+            def optimize_worker(file_path):
+                subprocess.run(
+                    [
+                        oxipng_exe,
+                        "-o",
+                        "4",
+                        "--strip",
+                        "safe",
+                        "--quiet",
+                        str(file_path),
+                    ],
+                    check=False,
+                    stderr=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                )
+
+            with Progress(
+                TextColumn("{task.description}"),
+                BarColumn(),
+                TextColumn("{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+            ) as progress:
+                task = progress.add_task(
+                    f"Applying lossless oxipng optimization ({oxipng_workers} Threads)",
+                    total=len(png_files),
+                )
+
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=oxipng_workers
+                ) as executor:
+                    futures = [
+                        executor.submit(optimize_worker, png_file)
+                        for png_file in png_files
+                    ]
+                    for _ in concurrent.futures.as_completed(futures):
+                        progress.update(task, advance=1)
+
+            total_size_after = sum(f.stat().st_size for f in png_files)
+
+            def format_size(size_bytes):
+                return f"{size_bytes / (1024 * 1024):.2f}MB"
+
+            print(f"Before: {format_size(total_size_before)}")
+            print(f"After: {format_size(total_size_after)}\n")
+    else:
+        print("oxipng not found in PATH. Skipping optimization.")
+        print("Install with: cargo install oxipng\n")
 
     if slowpics:
         # time.sleep(0.5)

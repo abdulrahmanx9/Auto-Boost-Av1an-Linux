@@ -3,6 +3,13 @@ import subprocess
 import os
 import shutil
 
+try:
+    from wakepy import keep
+
+    WAKEPY_AVAILABLE = True
+except ImportError:
+    WAKEPY_AVAILABLE = False
+
 
 def main():
     # --- Configuration ---
@@ -27,13 +34,19 @@ def main():
             input_file = args[idx + 1]
             break
 
-    # --- BT.709 Detection via MediaInfo ---
+    # --- Color Space Detection via MediaInfo ---
     is_bt709 = False
+    is_bt601 = False
 
-    # Flags to track if we found the specific BT.709 values
-    found_primaries = False
-    found_transfer = False
-    found_matrix = False
+    # Flags to track BT.709
+    f_prim_709 = False
+    f_trans_709 = False
+    f_mat_709 = False
+
+    # Flags to track BT.601
+    f_prim_601 = False
+    f_trans_601 = False
+    f_mat_601 = False
 
     if input_file and os.path.exists(input_file):
         if mediainfo_exe:
@@ -59,43 +72,68 @@ def main():
                         key = key.strip()
                         value = value.strip()
 
-                        # Check strict equality for the values
-                        if key == "Color primaries" and value == "BT.709":
-                            found_primaries = True
-                        elif key == "Transfer characteristics" and value == "BT.709":
-                            found_transfer = True
-                        elif key == "Matrix coefficients" and value == "BT.709":
-                            found_matrix = True
+                        # Check Color Primaries
+                        if key == "Color primaries":
+                            if value == "BT.709":
+                                f_prim_709 = True
+                            elif "BT.601" in value:
+                                f_prim_601 = True
 
-                    # All three must be present and equal to BT.709
-                    if found_primaries and found_transfer and found_matrix:
+                        # Check Transfer characteristics
+                        elif key == "Transfer characteristics":
+                            if value == "BT.709":
+                                f_trans_709 = True
+                            elif "BT.601" in value:
+                                f_trans_601 = True
+
+                        # Check Matrix coefficients
+                        elif key == "Matrix coefficients":
+                            if value == "BT.709":
+                                f_mat_709 = True
+                            elif "BT.601" in value:
+                                f_mat_601 = True
+
+                    # Evaluate Detection
+                    if f_prim_709 and f_trans_709 and f_mat_709:
                         is_bt709 = True
                         print("[Dispatch] MediaInfo confirmed full BT.709 source.")
+                    elif f_prim_601 and f_trans_601 and f_mat_601:
+                        is_bt601 = True
+                        print("[Dispatch] MediaInfo confirmed full BT.601 source.")
                     else:
                         print(
-                            f"[Dispatch] MediaInfo results - Primaries: {found_primaries}, Transfer: {found_transfer}, Matrix: {found_matrix}. Not pure BT.709."
+                            f"[Dispatch] MediaInfo results - 709: ({f_prim_709},{f_trans_709},{f_mat_709}) | 601: ({f_prim_601},{f_trans_601},{f_mat_601}). No standard color match."
                         )
                 else:
                     print("[Dispatch] Warning: MediaInfo returned an error.")
             except Exception as e:
                 print(f"[Dispatch] Warning: MediaInfo execution failed: {e}")
         else:
-            print(f"[Dispatch] Warning: mediainfo not found in PATH.")
+            print("[Dispatch] Warning: mediainfo not found in PATH.")
             print("[Dispatch] Install it with: sudo apt install mediainfo")
-
-    if is_bt709:
-        print("[Dispatch] Injecting color parameters.")
-    else:
-        print("[Dispatch] Using standard parameters.")
 
     # --- Construct Final Command ---
     # Use standard python3
     final_cmd = ["python3", av1an_script]
 
-    # Parameters to inject if BT.709
+    # Parameters to inject
+    # Note: BT.601 parameters set to 6-6-6
     bt709_flags = (
         " --color-primaries 1 --transfer-characteristics 1 --matrix-coefficients 1"
     )
+    bt601_flags = (
+        " --color-primaries 6 --transfer-characteristics 6 --matrix-coefficients 6"
+    )
+
+    current_flags = ""
+    if is_bt709:
+        print("[Dispatch] Injecting BT.709 parameters.")
+        current_flags = bt709_flags
+    elif is_bt601:
+        print("[Dispatch] Injecting BT.601 parameters.")
+        current_flags = bt601_flags
+    else:
+        print("[Dispatch] Using standard parameters (no color injection).")
 
     skip_next = False
     for idx, arg in enumerate(args):
@@ -108,9 +146,9 @@ def main():
             final_cmd.append(arg)
             if idx + 1 < len(args):
                 param_str = args[idx + 1]
-                if is_bt709:
-                    # Append our flags to the existing string
-                    param_str += bt709_flags
+                # Append detected flags to the existing string
+                if current_flags:
+                    param_str += current_flags
                 final_cmd.append(param_str)
                 skip_next = True
             else:
@@ -121,8 +159,16 @@ def main():
     # --- Execute ---
     try:
         sys.stdout.flush()
-        # On Linux, subprocess.check_call is safer for list args than manual joining.
-        subprocess.check_call(final_cmd)
+
+        if WAKEPY_AVAILABLE:
+            print("[Dispatch] Preventing system sleep via wakepy...")
+            # Wrap the encoding process in wakepy's keep.running() context
+            with keep.running():
+                subprocess.check_call(final_cmd)
+        else:
+            print("[Dispatch] wakepy not available, system may sleep during encoding.")
+            subprocess.check_call(final_cmd)
+
     except subprocess.CalledProcessError as e:
         sys.exit(e.returncode)
     except FileNotFoundError:

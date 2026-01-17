@@ -2,6 +2,40 @@
 
 This guide explains how to set up and run Auto-Boost-Av1an on Ubuntu.
 
+---
+
+## Which Script Should I Choose?
+
+Pick based on your content type and desired quality:
+
+### 🎌 ANIME
+| Script | Quality | Description |
+|--------|---------|-------------|
+| `run_linux_anime_crf30.sh` | **Standard** | ✅ Recommended starting point |
+| `run_linux_anime_crf25.sh` | High | Higher quality, larger files |
+| `run_linux_anime_crf15.sh` | Archival | Maximum quality, largest files |
+
+### 🎬 LIVE ACTION / MOVIES / TV SHOWS
+| Script | Quality | Description |
+|--------|---------|-------------|
+| `run_linux_live_crf30.sh` | **Standard** | ✅ Recommended starting point |
+| `run_linux_live_crf25.sh` | High | Higher quality, larger files |
+| `run_linux_live_crf15.sh` | Archival | Maximum quality, largest files |
+
+### ⚽ SPORTS / FAST MOTION
+| Script | Quality | Description |
+|--------|---------|-------------|
+| `run_linux_sports_crf33.sh` | Optimized | ✅ Best for high-motion content |
+
+> **TIP:** Start with CRF 30. If quality isn't sufficient, try CRF 25. For archival purposes, use CRF 15.
+
+### What is CRF?
+CRF stands for "Constant Rate Factor." It determines the balance between Video Quality and File Size:
+- **Lower CRF** (e.g., 15) = Higher Quality, Larger File Size
+- **Higher CRF** (e.g., 30) = Lower Quality, Smaller File Size
+
+---
+
 ## Prerequisites
 
 ### Automatic Installation
@@ -13,7 +47,6 @@ We have provided a script to automatically install all dependencies on Ubuntu/De
 This script needs to be run as root.
 
 ```bash
-dos2unix install_deps_ubuntu.sh
 chmod +x install_deps_ubuntu.sh
 sudo ./install_deps_ubuntu.sh
 ```
@@ -170,6 +203,9 @@ We provide variants based on content type (Anime vs Live Action) and quality. Al
 *   **High (CRF 25)**: `./run_linux_live_crf25.sh` - Tune 3, Variance Boost 2.
 *   **Highest (CRF 15)**: `./run_linux_live_crf15.sh` - Maximum fidelity.
 
+**Sports / High-Motion Content:**
+*   **Low Quality (CRF 33)**: `./run_linux_sports_crf33.sh` - Optimized for high-motion content with extra temporal filtering.
+
 The script will:
 1.  Detect Scene Changes.
 2.  Start Av1an with the optimized parameters.
@@ -218,6 +254,21 @@ We include an `extras/` folder with helper scripts for advanced workflows:
 cd extras
 ./light-denoise.sh
 ```
+
+## Prefilter (Deband Scripts)
+
+The `prefilter/` folder contains scripts for applying deband filters before encoding:
+
+| Script | Description |
+|--------|-------------|
+| `nvidia-deband.sh` | NVIDIA GPU deband using NVEncC + libplacebo |
+| `x265-lossless-deband.sh` | CPU deband using VapourSynth + x265 lossless |
+
+Edit `prefilter/settings.txt` to customize filter settings.
+
+*Requirements:*
+- For NVIDIA scripts: NVEncC installed and in PATH
+- For x265 scripts: VapourSynth with placebo plugin, x265
 
 ## Troubleshooting
 

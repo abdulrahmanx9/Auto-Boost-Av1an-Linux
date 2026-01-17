@@ -2,6 +2,28 @@
 
 All notable changes to the Linux Port of Auto-Boost-Av1an will be documented in this file.
 
+## [1.7.0-linux] - 2026-01-17
+
+### Added
+- **Sports/High-Motion Script**: Added `run_linux_sports_crf33.sh` for high-motion content (sports, action) with optimized temporal filtering (`--tf-strength 3`).
+- **Prefilter Folder**: Added `prefilter/` directory with deband scripts matching Windows v1.46:
+    - `nvidia-deband.sh`: NVIDIA GPU deband using NVEncC + libplacebo.
+    - `x265-lossless-deband.sh`: CPU deband using VapourSynth + x265 lossless.
+    - `tools/deband-nvencc.py` and `tools/deband-x265-lossless.py`: Core Python scripts for deband processing.
+    - `settings.txt`: Configurable filter settings.
+- **oxipng Integration**: Added lossless PNG compression to `tools/comp.py` before uploading to slow.pics.
+    - Parallel execution using all CPU threads.
+    - Displays before/after size statistics.
+
+### Changed
+- **BT.601 Color Space Support**: Updated `tools/dispatch.py` to detect and transfer BT.601 color spaces for DVD sources (addresses color shift).
+- **Wakepy Integration in dispatch.py**: Moved wakepy integration to the dispatch layer for consistent system sleep prevention.
+- **Updated comp.py Dependencies**: Added `psutil` to pip requirements for oxipng worker thread detection.
+
+### Notes
+- This release matches Windows v1.45 and v1.46 features.
+- For NVIDIA deband scripts, NVEncC must be installed and in PATH.
+
 ## [1.6.0-linux] - 2026-01-14
 
 ### Added

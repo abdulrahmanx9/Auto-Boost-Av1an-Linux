@@ -166,6 +166,22 @@ else
     export LIBRARY_PATH="/usr/local/lib:$LIBRARY_PATH"
 fi
 
+# 5a. oxipng (PNG Optimizer for compare script - v1.46)
+if ! command -v oxipng &> /dev/null; then
+    echo "Installing oxipng via Cargo..."
+    source "$HOME/.cargo/env"
+    cargo install oxipng
+    
+    # Copy to /usr/local/bin for system-wide access
+    if [ -f "$HOME/.cargo/bin/oxipng" ]; then
+        cp "$HOME/.cargo/bin/oxipng" /usr/local/bin/oxipng
+        chmod +x /usr/local/bin/oxipng
+        echo "oxipng installed to /usr/local/bin/oxipng"
+    fi
+else
+    echo "oxipng is already installed."
+fi
+
 # 5b. fssimu2 (Standalone SSIMULACRA2 Metric Tool - Zig Build)
 if ! command -v fssimu2 &> /dev/null; then
     echo "==========================================================="
