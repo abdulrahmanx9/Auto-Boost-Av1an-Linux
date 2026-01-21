@@ -1,0 +1,40 @@
+# Auto-Boost-Av1an Settings File
+# Edit this file with your preferred text editor.
+
+# Only the live action scripts have cropping enabled by default using --autocrop.
+# You can add --autocrop to any script you like.
+# Mode options: auto, manual
+crop=auto
+
+# Manual Crop Values
+# Only used if crop=manual
+# Subtracts pixels from the specific side
+top=140
+bottom=140
+left=0
+right=0
+
+[downscaling]
+# Downscaling will be performed after crop.
+# Options available: True, False
+downscale=False
+# Available Kernels:
+#   hermite: Hermite-weighted averaging
+#   bilinear: Bilinear (triangle) averaging
+#   bicubic: Bicubic interpolation
+#   gaussian: Gaussian smoothing
+#   catmull_rom: Catmull-Rom cubic spline
+#   mitchell: Mitchell-Netravalia cubic spline
+#   lanczos: Lanczos reconstruction
+#   spline36: Spline interpolation (36 samples)
+#
+# Recommendations:
+#   * Anime: Hermite
+#   * Live Action: Spline36
+#
+# Target Resolution (WidthxHeight) e.g. 1920x1080
+# Or provide target width (recommended) and height is calculated for you.
+# Example: Source: 3840x1600, target: 1920, video will be 1920x800
+target_resolution=1920
+# Kernel Type (Choose from options above)
+kernel_type=Spline36
