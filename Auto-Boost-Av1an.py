@@ -171,12 +171,20 @@ parser.add_argument(
     help="Enable automatic crop detection | Default: not active",
 )
 parser.add_argument(
+    "--convert-to-YUV420P10",
+    action="store_true",
+    help="Convert to YUV420P10 during processing for sources such as 422 or 444 etc | Default: not active",
+)
+parser.add_argument(
     "-v", "--version", action="version", version=f"Auto-Boost-Essential {ver_str}"
 )
 parser.add_argument(
     "--debug",
     action="store_true",
     help="Checks the installation and provides relevant information for troubleshooting | Default: not active",
+)
+parser.add_argument(
+    "--zones", help="Path to specific zones file override", default=None
 )
 
 args = parser.parse_args()
@@ -196,6 +204,50 @@ def obscure_user_path(text: str) -> str:
 
 
 # ----------------------
+
+
+# --- SETTINGS PARSER ---
+def get_script_setting(key_name: str, default_value: str) -> str:
+    """
+    Parses settings.txt from the script's directory (or current dir) for specific keys.
+    Does not rely on line numbers, searches for 'key=value'.
+    """
+    # Look for settings.txt in same folder as script
+    script_dir = Path(__file__).parent.resolve()
+    settings_path = script_dir / "settings.txt"
+
+    if not settings_path.exists():
+        # Fallback to current working directory
+        settings_path = Path.cwd() / "settings.txt"
+
+    if not settings_path.exists():
+        return default_value
+
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments
+                if line.startswith("#") or line.startswith(";"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    if k.strip().lower() == key_name.lower():
+                        return v.strip()
+    except Exception:
+        pass
+
+    return default_value
+
+
+# Load Settings
+s_downscale = get_script_setting("downscale", "False")
+s_target_res = get_script_setting("target_resolution", "1920x1080")
+s_kernel = get_script_setting("kernel_type", "Hermite")
+
+# Normalize boolean string
+do_downscale_bool = s_downscale.lower() == "true"
+# -----------------------
 
 stage = int(args.stage)
 src_file = Path(args.input).resolve()
@@ -273,6 +325,7 @@ ssimu2_cpu_workers = int(args.ssimu2_cpu_workers)
 verbose = args.verbose
 resume = args.resume
 no_boosting = args.no_boosting
+convert_yuv420p10 = args.convert_to_YUV420P10
 av1an_workers = args.workers
 photon_noise_val = int(args.photon_noise)
 
@@ -474,36 +527,91 @@ if not os.path.exists(vpy_file):
     if args.autocrop:
         crop_top, crop_bottom = detect_crop_values(src_file)
 
-    # Template
+    # Template - Updated to match Windows v1.5 with downscaling support
     vpy_template = """
-from vstools import vs, core, depth, DitherType, set_output
+from vstools import vs, core, initialize_clip, finalize_clip
 core.max_cache_size = 1024
+
+# Load Source
 src = core.ffms2.Source(source=r"{source}", cachefile=r"{cache}")
 
+# Conversion
+if {convert}:
+    src = src.resize.Bicubic(format=vs.YUV420P10)
+
+# Initialize (Fixes Placebo bitdepth error by ensuring 16-bit)
+src = initialize_clip(src)
+
+# 1. CROP
 if {ct} > 0 or {cb} > 0:
     src = src.std.Crop(top={ct}, bottom={cb})
 
-bit_to_format = {{
-    8: vs.YUV420P8,
-    10: vs.YUV420P10,
-    12: vs.YUV420P12
-}}
-bit_to_dither = {{
-    8: DitherType.NONE,
-    10: DitherType.NONE,
-    12: DitherType.AUTO
-}}
-fmt = bit_to_format.get(src.format.bits_per_sample, vs.YUV420P16)
-dt = bit_to_dither.get(src.format.bits_per_sample, DitherType.AUTO)
-src = depth(src.resize.Bilinear(format=fmt), 10, dither_type=dt)
-set_output(src)
+# 2. DOWNSCALE
+should_downscale = {downscale}
+target_res_str = "{target_res}"
+user_kernel = "{kernel}"
+
+if should_downscale:
+    # Kernel Map
+    k_map = {{
+        "hermite": "hermite",
+        "bilinear": "triangle",
+        "bicubic": "catmull_rom",
+        "gaussian": "gaussian",
+        "catmull_rom": "catmull_rom",
+        "mitchell": "mitchell",
+        "lanczos": "lanczos",
+        "spline36": "spline36"
+    }}
+    pl_filter = k_map.get(user_kernel.lower(), "spline36")
+
+    # Parse Target Resolution
+    target_w = 0
+    target_h = 0
+    
+    if "x" in target_res_str.lower():
+        try:
+            w_str, h_str = target_res_str.lower().split("x")
+            target_w = int(w_str)
+            target_h = int(h_str)
+        except:
+            pass
+    else:
+        try:
+            target_w = int(target_res_str)
+        except:
+            pass
+            
+    # Calculate Height
+    if target_w > 0:
+        if target_h == 0:
+            target_h = int(target_w * src.height / src.width)
+            if target_h % 2 != 0:
+                target_h -= 1
+        
+        if target_w % 2 != 0:
+            target_w -= 1
+            
+        if target_w < src.width or target_h < src.height:
+             src = core.placebo.Resample(src, target_w, target_h, filter=pl_filter)
+
+# Finalize (Sets 10-bit output)
+final = finalize_clip(src)
+final.set_output(0)
 """
 
-    # Write Windows VPY (Absolute paths okay here for local python)
+    # Write VPY
     with open(vpy_file, "w") as file:
         file.write(
             vpy_template.format(
-                source=src_file, cache=cache_file, ct=crop_top, cb=crop_bottom
+                source=src_file,
+                cache=cache_file,
+                ct=crop_top,
+                cb=crop_bottom,
+                downscale=str(do_downscale_bool),
+                target_res=s_target_res,
+                kernel=s_kernel,
+                convert=convert_yuv420p10,
             )
         )
 

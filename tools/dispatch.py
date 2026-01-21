@@ -112,6 +112,16 @@ def main():
             print("[Dispatch] Warning: mediainfo not found in PATH.")
             print("[Dispatch] Install it with: sudo apt install mediainfo")
 
+    # --- Check for special flags ---
+    # v1.5: --convert-to-YUV420P10 for non-standard chroma subsampling (4:2:2, 4:4:4, etc.)
+    convert_yuv420p10 = (
+        "--convert-to-YUV420P10" in args or "--convert-to-yuv420p10" in args
+    )
+    if convert_yuv420p10:
+        print(
+            "[Dispatch] YUV420P10 conversion enabled for non-standard chroma subsampling."
+        )
+
     # --- Construct Final Command ---
     # Use standard python3
     final_cmd = ["python3", av1an_script]
