@@ -13,14 +13,14 @@ Pick based on your content type and desired quality:
 |--------|---------|-------------|
 | `run_linux_anime_crf30.sh` | **Standard** | ✅ Recommended starting point |
 | `run_linux_anime_crf25.sh` | High | Higher quality, larger files |
-| `run_linux_anime_crf15.sh` | Archival | Maximum quality, largest files |
+| `run_linux_anime_crf18.sh` | Archival | Maximum quality, largest files |
 
 ### 🎬 LIVE ACTION / MOVIES / TV SHOWS
 | Script | Quality | Description |
 |--------|---------|-------------|
 | `run_linux_live_crf30.sh` | **Standard** | ✅ Recommended starting point |
 | `run_linux_live_crf25.sh` | High | Higher quality, larger files |
-| `run_linux_live_crf15.sh` | Archival | Maximum quality, largest files |
+| `run_linux_live_crf18.sh` | Archival | Maximum quality, largest files |
 
 ### ⚽ SPORTS / FAST MOTION
 | Script | Quality | Description |
@@ -32,13 +32,13 @@ Pick based on your content type and desired quality:
 |--------|---------|-------------|
 | `Progression-Boost-SSIMU2-anime.sh` | **Auto** | Analyzes each scene and optimizes settings for Anime |
 | `Progression-Boost-SSIMU2-liveaction.sh` | **Auto** | Analyzes each scene and optimizes settings for Live Action |
-> **Note:** Progression Boost uses SSIMULACRA2 metrics to target a visual quality score (Default: 82). It benchmarking your CPU/RAM on first run to set optimal workers.
+> **Note:** Progression Boost uses SSIMULACRA2 metrics to target a visual quality score (Default: 82), adjusting bitrate (crf) on a per scene basis to target that quality score. It benchmarks your CPU/RAM on first run to set optimal workers.
 
 > **TIP:** Start with CRF 30. If quality isn't sufficient, try CRF 25. For archival purposes, use CRF 15.
 
 ### What is CRF?
 CRF stands for "Constant Rate Factor." It determines the balance between Video Quality and File Size:
-- **Lower CRF** (e.g., 15) = Higher Quality, Larger File Size
+- **Lower CRF** (e.g., 18) = Higher Quality, Larger File Size
 - **Higher CRF** (e.g., 30) = Lower Quality, Smaller File Size
 
 ---
