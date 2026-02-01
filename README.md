@@ -50,19 +50,25 @@ CRF stands for "Constant Rate Factor." It determines the balance between Video Q
 For a detailed list of versions and software installed, see [DEPENDENCIES.md](DEPENDENCIES.md).
 
 
-We have provided a script to automatically install all dependencies on Ubuntu/Debian.
+We have provided a **modular** setup script to install or uninstall dependencies individually or in bulk.
 This script needs to be run as root.
 
 ```bash
-chmod +x install_deps_ubuntu.sh
-sudo ./install_deps_ubuntu.sh
+chmod +x setup.sh
+sudo ./setup.sh
 ```
 
-**Cleanup:**
-If the installation fails or you want to undo the manual compilations (SVT-AV1, WWXD), you can run:
+The script will launch an interactive menu where you can:
+-   **Install All**: Setup everything in one go (Recommended).
+-   **Selective Install**: Install specific tools (e.g., Av1an, SVT-AV1) by entering their numbers (e.g., `1 3 5`).
+-   **Uninstall**: Switch to Uninstall mode (Press **T**) to remove specific tools or everything.
+
+**CLI Mode:**
+You can also run it without the menu:
 ```bash
-chmod +x cleanup_install.sh
-sudo ./cleanup_install.sh
+sudo ./setup.sh --install A      # Install Everything
+sudo ./setup.sh --install av1an  # Install Av1an only
+sudo ./setup.sh --uninstall A    # Uninstall Everything
 ```
 
 If you prefer to install manually, follow the steps below.
@@ -293,58 +299,3 @@ Edit `prefilter/settings.txt` to customize filter settings.
 -   **Missing Tools**: Ensure `av1an`, `SvtAv1EncApp`, `ffmpeg`, `mkvmerge`, `mkvpropedit` are in your PATH.
 -   **VapourSynth Errors**: Ensure you have the required plugins (`ffms2`) installed and accessible to VapourSynth.
 -   **Permissions**: Ensure you have write permissions in the folder.
-
-## Files Required
-
-If you are moving this project to a Linux machine, you only need the following files. You can ignore the `VapourSynth` folder and the `.exe` files in `tools/`.
-
-**Root Directory:**
--   `Auto-Boost-Av1an.py`
--   `run_linux_anime_crf30.sh` (and all other .sh variants)
--   `README.md` (renamed to README_LINUX.md if distributing standalone)
-
-**Tools Directory (`tools/`):**
--   `tools/dispatch.py` (New)
--   `tools/cropdetect.py` (auto-crop support)
--   `tools/ac3.py` (AC3 audio encoder)
--   `tools/eac3.py` (EAC3 audio encoder)
--   `tools/opus.py` (Opus audio encoder)
--   `tools/forced-aspect-remux.py` (aspect ratio fixer)
--   `tools/light-denoise-nvencc.py` (NVIDIA GPU denoise)
--   `tools/light-denoise-x265-lossless.py` (CPU denoise)
--   `tools/detect_grainy_flashbacks-beta.py` (flashback detection)
--   `tools/comp.py` (video comparison tool)
--   `tools/Progressive-Scene-Detection.py`
--   `tools/cleanup.py`
--   `tools/mux.py`
--   `tools/rename.py`
--   `tools/tag.py`
--   `tools/workercount.py`
--   `tools/sample.mkv`
--   `tools/iso200-grain.tbl`
-
-*Note: The Windows binaries (av1an.exe, mkvmerge.exe, etc.) and the VapourSynth folder are NOT needed on Linux.*
-
-## Code Modification Log
-
-To support Linux, the following changes were made to the original codebase:
-- **Automated Installer**: `install_deps_ubuntu.sh` automates the entire setup (System packages, VapourSynth, Av1an, SVT-AV1-PSY, WWXD, VSZIP).
-    - *Note*: **VSZIP** (VapourSynth-ZIP) plugin and its dependency (Zig compiler) are now **automatically downloaded and installed** by the script.
-- **Code Adaptation**: Python scripts were modified to use `shutil.which` for finding executables (`av1an`, `mkvmerge`, etc.) instead of hardcoded Windows paths.
-- **Path Handling**: Windows-style paths (backslashes) were replaced or handled using Python's cross-platform `pathlib` or `os.path` where necessary.
-
-### 1. `Auto-Boost-Av1an.py`
--   **Tool Path Resolution**: Modified to use `platform.system()` to detect the OS.
-    -   **Windows**: Continues to use relative paths to the portable `tools\` folder (e.g., `tools\av1an\av1an.exe`).
-    -   **Linux**: Uses `shutil.which()` to find `av1an` and `fssimu2` in the system PATH.
-
-### 2. `tools/mux.py` & `tools/tag.py` & `tools/dispatch.py`
--   **MKVToolNix Paths**: Modified to use `platform.system()` and `shutil.which()`.
-    -   **Windows**: Uses bundled `tools\MKVToolNix\mkvmerge.exe` and `mkvpropedit.exe`.
-    -   **Linux**: Expects `mkvmerge` and `mkvpropedit` to be installed and available in the system PATH.
--   **Batch Detection (`tag.py`)**: Updated `get_active_batch_filename` to detect the new `sh-used-run.sh.txt` marker file created by the Linux shell script.
--   **Dispatch (`dispatch.py`)**: Ported to utilize linux `mediainfo` for BT.709 detection and inject parameters to `Auto-Boost-Av1an.py`.
-
-### 3. New Files
--   **`run_linux_crf30.sh`** (and variants): Bash scripts created to verify worker count, rename files, run scene detection, execute the main Python script (via dispatch), and perform muxing/tagging/cleanup. Replaces `batch.bat` and others on Linux.
--   **`README_LINUX.md`**: This documentation file.

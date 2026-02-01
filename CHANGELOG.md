@@ -2,6 +2,23 @@
 
 All notable changes to the Linux Port of Auto-Boost-Av1an will be documented in this file.
 
+## [2.0.0-linux] - 2026-02-01
+
+### Added
+- **Modular Installer**: Replaced monolithic script with `setup.sh` and individual modules in `setup/`.
+    - **Interactive Menu**: Select tools to install/uninstall.
+    - **Multi-Select**: Install multiple tools at once (e.g., "1 3 5").
+    - **Install All**: One-click full installation.
+- **Uninstall Mode**: Dedicated uninstall functions for every component.
+- **Granular Control**: Install specific components (e.g., just `svt-av1` or `oxipng`) without running the full suite.
+
+### Changed
+- **Robustness**: Added strict error handling to all build steps; dependencies now stop immediately on failure.
+- **Structure**: Split installation logic into `setup/` directory.
+
+### Deprecated
+- `install_deps_ubuntu.sh` and `cleanup_install.sh` are now wrappers around `setup.sh`.
+
 ## [1.9.0-linux] - 2026-01-27
 
 ### Added
